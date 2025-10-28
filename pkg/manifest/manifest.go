@@ -100,10 +100,10 @@ type EnvironmentConfig struct {
 type DeploymentConfig struct {
 	// Platform type (e.g., docker, nodejs, python)
 	Platform string `yaml:"platform"`
-	
-	// Solution stack or runtime version (provider-specific)
-	SolutionStack string `yaml:"solution_stack"`
-	
+
+	// Solution stack or runtime version (provider-specific, optional - will auto-detect if not specified)
+	SolutionStack string `yaml:"solution_stack,omitempty"`
+
 	// Source code location
 	Source SourceConfig `yaml:"source"`
 }

@@ -53,6 +53,11 @@ func (p *Provider) Name() string {
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
 	fmt.Println("Starting AWS Elastic Beanstalk deployment...")
 
+	// Step 0: Auto-detect solution stack if not specified
+	if err := p.ensureSolutionStack(ctx, m); err != nil {
+		return nil, fmt.Errorf("failed to determine solution stack: %w", err)
+	}
+
 	// Step 1: Create or verify application exists
 	if err := p.ensureApplication(ctx, m); err != nil {
 		return nil, fmt.Errorf("failed to ensure application: %w", err)
@@ -159,6 +164,47 @@ func (p *Provider) Status(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		URL:             url,
 		LastUpdated:     env.DateUpdated.String(),
 	}, nil
+}
+
+// ensureSolutionStack determines the solution stack to use.
+// If already specified in manifest, it validates it exists.
+// If not specified, it auto-detects the latest stack for the platform.
+func (p *Provider) ensureSolutionStack(ctx context.Context, m *manifest.Manifest) error {
+	// If already specified, validate and use it
+	if m.Deployment.SolutionStack != "" {
+		fmt.Printf("Using specified solution stack: %s\n", m.Deployment.SolutionStack)
+		return nil
+	}
+
+	// Auto-detect based on platform
+	fmt.Printf("Auto-detecting solution stack for platform: %s\n", m.Deployment.Platform)
+
+	result, err := p.ebClient.ListAvailableSolutionStacks(ctx, &elasticbeanstalk.ListAvailableSolutionStacksInput{})
+	if err != nil {
+		return fmt.Errorf("failed to list solution stacks: %w", err)
+	}
+
+	// Filter for matching platform
+	var candidates []string
+	platformLower := strings.ToLower(m.Deployment.Platform)
+
+	for _, stack := range result.SolutionStacks {
+		stackLower := strings.ToLower(stack)
+		// Look for stacks matching the platform on Amazon Linux 2023
+		if strings.Contains(stackLower, platformLower) && strings.Contains(stackLower, "amazon linux 2023") {
+			candidates = append(candidates, stack)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return fmt.Errorf("no solution stack found for platform: %s", m.Deployment.Platform)
+	}
+
+	// Select the first one (AWS returns them in descending version order, so first = latest)
+	m.Deployment.SolutionStack = candidates[0]
+	fmt.Printf("Auto-selected solution stack: %s\n", m.Deployment.SolutionStack)
+
+	return nil
 }
 
 // ensureApplication creates the application if it doesn't exist.

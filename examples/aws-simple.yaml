@@ -16,8 +16,7 @@ environment:
   cname: my-simple-app
   
 deployment:
-  platform: docker
-  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  platform: docker  # solution_stack is optional - will auto-detect latest Docker on Amazon Linux 2023
   source:
     type: local
     path: "."
