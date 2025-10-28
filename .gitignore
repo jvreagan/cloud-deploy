@@ -1,0 +1,32 @@
+# Binaries (at root level only)
+/cloud-deploy
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
+go.sum
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment artifacts
+*.log
+.elasticbeanstalk/
+
+# Test manifests (keep examples)
+deploy-manifest.yaml
+!deploy-manifest.example.yaml

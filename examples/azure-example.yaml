@@ -1,0 +1,34 @@
+# Azure Container Instances deployment example (coming soon)
+# Note: Azure provider not yet implemented
+
+version: "1.0"
+
+provider:
+  name: azure
+  region: eastus
+
+application:
+  name: my-azure-app
+  description: "Azure Container Instances application"
+  
+environment:
+  name: my-azure-app-env
+  cname: my-azure-app
+  
+deployment:
+  platform: docker
+  source:
+    type: local
+    path: "."
+  
+instance:
+  type: Standard_B1s
+  environment_type: SingleInstance
+  
+health_check:
+  type: basic
+  path: /health
+
+# Azure-specific configuration
+# resource_group: my-resource-group
+# dns_name_label: my-azure-app

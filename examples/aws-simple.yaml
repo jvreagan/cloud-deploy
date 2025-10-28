@@ -1,0 +1,34 @@
+# Simple AWS deployment example
+# Minimal configuration for deploying a Docker application to AWS Elastic Beanstalk
+
+version: "1.0"
+
+provider:
+  name: aws
+  region: us-east-2
+
+application:
+  name: simple-app
+  description: "Simple Docker application"
+  
+environment:
+  name: simple-app-env
+  cname: my-simple-app
+  
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local
+    path: "."
+  
+instance:
+  type: t3.micro
+  environment_type: SingleInstance
+  
+health_check:
+  type: basic
+  path: /health
+
+iam:
+  instance_profile: cloud-hello-world-eb-ec2

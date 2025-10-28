@@ -1,0 +1,56 @@
+version: "1.0"
+
+# Cloud provider configuration
+provider:
+  name: aws
+  region: us-east-2
+  # Credentials can be provided via:
+  # 1. AWS CLI configured credentials (recommended)
+  # 2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  # 3. Explicit credentials in manifest (not recommended for production)
+  # credentials:
+  #   access_key_id: YOUR_ACCESS_KEY
+  #   secret_access_key: YOUR_SECRET_KEY
+
+# Application configuration
+application:
+  name: helloworld3
+  description: "Hello World 3 API"
+  
+# Environment configuration
+environment:
+  name: helloworld3-env
+  cname: jvr-helloworld3  # Creates: jvr-helloworld3.REGION.elasticbeanstalk.com
+  
+# Deployment configuration
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local  # local, s3, or git
+    path: "."    # Path to application source code
+  
+# Instance configuration  
+instance:
+  type: t3.micro
+  environment_type: SingleInstance  # or LoadBalanced
+  
+# Health check configuration
+health_check:
+  type: basic  # or enhanced
+  path: /helloworld3
+  
+# Optional: IAM configuration
+iam:
+  instance_profile: cloud-hello-world-eb-ec2  # Use existing or create new
+  # service_role: aws-elasticbeanstalk-service-role  # Optional
+  
+# Optional: Environment variables
+# environment_variables:
+#   PORT: "8080"
+#   NODE_ENV: "production"
+
+# Optional: Tags
+tags:
+  Project: cloud-deploy-example
+  ManagedBy: cloud-deploy

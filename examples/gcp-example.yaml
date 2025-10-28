@@ -1,0 +1,35 @@
+# GCP Cloud Run deployment example (coming soon)
+# Note: GCP provider not yet implemented
+
+version: "1.0"
+
+provider:
+  name: gcp
+  region: us-central1
+
+application:
+  name: my-gcp-app
+  description: "GCP Cloud Run application"
+  
+environment:
+  name: my-gcp-app-env
+  cname: my-gcp-app
+  
+deployment:
+  platform: docker
+  source:
+    type: local
+    path: "."
+  
+instance:
+  type: cloudrun-1vcpu-256mb
+  environment_type: Serverless
+  
+health_check:
+  type: basic
+  path: /health
+
+# GCP-specific configuration
+# service_account: app-service-account@project.iam.gserviceaccount.com
+# max_instances: 10
+# timeout: 300s

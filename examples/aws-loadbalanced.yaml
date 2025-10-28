@@ -1,0 +1,45 @@
+# AWS load-balanced deployment example
+# Production-ready configuration with load balancing and auto-scaling
+
+version: "1.0"
+
+provider:
+  name: aws
+  region: us-east-1
+
+application:
+  name: production-app
+  description: "Production application with load balancing"
+  
+environment:
+  name: production-app-env
+  cname: production-app
+  
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local
+    path: "."
+  
+instance:
+  type: t3.small
+  environment_type: LoadBalanced
+  
+health_check:
+  type: enhanced
+  path: /api/health
+
+iam:
+  instance_profile: production-eb-ec2-profile
+
+environment_variables:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  PORT: "8080"
+
+tags:
+  Environment: production
+  Team: platform
+  CostCenter: engineering
+  ManagedBy: cloud-deploy
