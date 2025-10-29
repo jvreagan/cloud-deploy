@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -30,9 +31,31 @@ type Provider struct {
 	region   string
 }
 
-// New creates a new AWS provider instance with the specified region.
-func New(ctx context.Context, region string) (*Provider, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+// New creates a new AWS provider instance with the specified region and optional credentials.
+// If credentials are provided in the manifest, they will be used.
+// Otherwise, it falls back to the AWS SDK default credential chain (environment variables,
+// shared credentials file, or IAM role).
+func New(ctx context.Context, region string, creds *manifest.CredentialsConfig) (*Provider, error) {
+	var cfg aws.Config
+	var err error
+
+	// If credentials are provided in the manifest, use them
+	if creds != nil && creds.AccessKeyID != "" && creds.SecretAccessKey != "" {
+		fmt.Println("Using credentials from manifest")
+		cfg, err = config.LoadDefaultConfig(ctx,
+			config.WithRegion(region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+				creds.AccessKeyID,
+				creds.SecretAccessKey,
+				"", // session token (optional)
+			)),
+		)
+	} else {
+		// Fall back to default credential chain
+		fmt.Println("Using AWS default credential chain")
+		cfg, err = config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
@@ -133,6 +156,31 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 	}
 
 	fmt.Println("Environment terminated successfully")
+	return nil
+}
+
+// Stop stops the AWS Elastic Beanstalk environment but preserves the application and versions.
+// This terminates all running resources (EC2 instances, load balancers, etc.) to stop costs,
+// but keeps the application definition and version artifacts in S3 for fast redeployment.
+func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
+	fmt.Printf("Stopping environment: %s\n", m.Environment.Name)
+	fmt.Println("This will terminate all resources but preserve the application for fast restart.")
+
+	_, err := p.ebClient.TerminateEnvironment(ctx, &elasticbeanstalk.TerminateEnvironmentInput{
+		EnvironmentName: aws.String(m.Environment.Name),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to terminate environment: %w", err)
+	}
+
+	fmt.Println("Waiting for environment termination...")
+	if err := p.waitForEnvironmentTermination(ctx, m.Application.Name, m.Environment.Name); err != nil {
+		return fmt.Errorf("failed to wait for termination: %w", err)
+	}
+
+	fmt.Println("Environment stopped successfully")
+	fmt.Printf("Application '%s' and versions are preserved in S3\n", m.Application.Name)
+	fmt.Println("Run 'cloud-deploy -command deploy' to restart")
 	return nil
 }
 
@@ -335,11 +383,15 @@ func (p *Provider) createEnvironment(ctx context.Context, m *manifest.Manifest, 
 	return err
 }
 
-// updateEnvironment updates an existing environment with a new version.
+// updateEnvironment updates an existing environment with a new version and configuration.
 func (p *Provider) updateEnvironment(ctx context.Context, m *manifest.Manifest, versionLabel string) error {
+	// Build option settings from manifest to apply configuration changes
+	optionSettings := p.buildOptionSettings(m)
+
 	_, err := p.ebClient.UpdateEnvironment(ctx, &elasticbeanstalk.UpdateEnvironmentInput{
 		EnvironmentName: aws.String(m.Environment.Name),
 		VersionLabel:    aws.String(versionLabel),
+		OptionSettings:  optionSettings,
 	})
 	return err
 }
@@ -375,6 +427,52 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 			OptionName: aws.String("Application Healthcheck URL"),
 			Value:      aws.String(m.HealthCheck.Path),
 		})
+	}
+
+	// Add enhanced health reporting if enabled (or if health check type is "enhanced")
+	if m.Monitoring.EnhancedHealth || m.HealthCheck.Type == "enhanced" {
+		settings = append(settings, ebtypes.ConfigurationOptionSetting{
+			Namespace:  aws.String("aws:elasticbeanstalk:healthreporting:system"),
+			OptionName: aws.String("SystemType"),
+			Value:      aws.String("enhanced"),
+		})
+	}
+
+	// Add CloudWatch metrics collection if enabled
+	if m.Monitoring.CloudWatchMetrics {
+		// Enable detailed CloudWatch monitoring for instances
+		settings = append(settings, ebtypes.ConfigurationOptionSetting{
+			Namespace:  aws.String("aws:autoscaling:launchconfiguration"),
+			OptionName: aws.String("MonitoringInterval"),
+			Value:      aws.String("1 minute"),
+		})
+	}
+
+	// Add CloudWatch Logs streaming if configured
+	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.Enabled {
+		settings = append(settings, ebtypes.ConfigurationOptionSetting{
+			Namespace:  aws.String("aws:elasticbeanstalk:cloudwatch:logs"),
+			OptionName: aws.String("StreamLogs"),
+			Value:      aws.String("true"),
+		})
+
+		// Set log retention if specified
+		if m.Monitoring.CloudWatchLogs.RetentionDays > 0 {
+			settings = append(settings, ebtypes.ConfigurationOptionSetting{
+				Namespace:  aws.String("aws:elasticbeanstalk:cloudwatch:logs"),
+				OptionName: aws.String("RetentionInDays"),
+				Value:      aws.String(fmt.Sprintf("%d", m.Monitoring.CloudWatchLogs.RetentionDays)),
+			})
+		}
+
+		// Stream application logs if configured (default is true when logs are enabled)
+		if m.Monitoring.CloudWatchLogs.StreamLogs {
+			settings = append(settings, ebtypes.ConfigurationOptionSetting{
+				Namespace:  aws.String("aws:elasticbeanstalk:cloudwatch:logs:health"),
+				OptionName: aws.String("HealthStreamingEnabled"),
+				Value:      aws.String("true"),
+			})
+		}
 	}
 
 	// Add environment variables

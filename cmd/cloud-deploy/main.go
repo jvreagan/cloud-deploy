@@ -16,7 +16,7 @@ func main() {
 	// Parse command line flags
 	var (
 		manifestFile = flag.String("manifest", "deploy-manifest.yaml", "Path to deployment manifest file")
-		command      = flag.String("command", "deploy", "Command to execute: deploy, destroy, status")
+		command      = flag.String("command", "deploy", "Command to execute: deploy, stop, destroy, status")
 		showVersion  = flag.Bool("version", false, "Show version information")
 	)
 	flag.Parse()
@@ -56,6 +56,14 @@ func main() {
 		fmt.Printf("  URL: %s\n", result.URL)
 		fmt.Printf("  Status: %s\n", result.Status)
 
+	case "stop":
+		fmt.Printf("Stopping deployment...\n")
+		if err := p.Stop(ctx, m); err != nil {
+			fmt.Fprintf(os.Stderr, "Stop failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Deployment stopped successfully\n")
+
 	case "destroy":
 		fmt.Printf("Destroying deployment...\n")
 		if err := p.Destroy(ctx, m); err != nil {
@@ -80,7 +88,7 @@ func main() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
-		fmt.Fprintf(os.Stderr, "Valid commands: deploy, destroy, status\n")
+		fmt.Fprintf(os.Stderr, "Valid commands: deploy, stop, destroy, status\n")
 		os.Exit(1)
 	}
 }

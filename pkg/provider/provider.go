@@ -9,6 +9,7 @@ import (
 
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
 	"github.com/jvreagan/cloud-deploy/pkg/providers/aws"
+	"github.com/jvreagan/cloud-deploy/pkg/providers/gcp"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
 )
 
@@ -44,7 +45,16 @@ type Provider interface {
 	//
 	// Use with caution - this action is typically irreversible.
 	Destroy(ctx context.Context, m *manifest.Manifest) error
-	
+
+	// Stop stops the running environment/service but preserves the application and versions.
+	// This is useful for temporarily stopping resource consumption without destroying everything.
+	// Provider-specific behavior:
+	// - AWS: Terminates the Elastic Beanstalk environment (keeps application + versions)
+	// - GCP: Deletes the Cloud Run service (keeps container images)
+	//
+	// After stopping, you can restart by running Deploy again.
+	Stop(ctx context.Context, m *manifest.Manifest) error
+
 	// Status returns the current status of the deployment.
 	// This queries the cloud provider for:
 	// - Application status
@@ -72,9 +82,9 @@ type Provider interface {
 func Factory(ctx context.Context, m *manifest.Manifest) (Provider, error) {
 	switch m.Provider.Name {
 	case "aws":
-		return aws.New(ctx, m.Provider.Region)
+		return aws.New(ctx, m.Provider.Region, m.Provider.Credentials)
 	case "gcp":
-		return nil, fmt.Errorf("GCP provider not yet implemented")
+		return gcp.New(ctx, &m.Provider)
 	case "azure":
 		return nil, fmt.Errorf("Azure provider not yet implemented")
 	case "oci":

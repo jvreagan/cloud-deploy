@@ -43,7 +43,10 @@ type Manifest struct {
 	
 	// Health check configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
-	
+
+	// Monitoring configuration (CloudWatch, metrics) - optional
+	Monitoring MonitoringConfig `yaml:"monitoring,omitempty"`
+
 	// IAM configuration (roles, profiles) - optional
 	IAM IAMConfig `yaml:"iam,omitempty"`
 	
@@ -58,23 +61,44 @@ type Manifest struct {
 type ProviderConfig struct {
 	// Name of the cloud provider (aws, gcp, azure, oci)
 	Name string `yaml:"name"`
-	
+
 	// Region to deploy to (e.g., us-east-2, us-west-1)
 	Region string `yaml:"region"`
-	
+
 	// Credentials for authentication - optional, can use CLI credentials instead
 	Credentials *CredentialsConfig `yaml:"credentials,omitempty"`
+
+	// GCP-specific: Project ID (required for GCP provider)
+	// The provider will create this project if it doesn't exist
+	ProjectID string `yaml:"project_id,omitempty"`
+
+	// GCP-specific: Billing account ID (required for GCP project creation)
+	// Format: "XXXXXX-XXXXXX-XXXXXX"
+	// Find yours at: https://console.cloud.google.com/billing
+	BillingAccountID string `yaml:"billing_account_id,omitempty"`
+
+	// GCP-specific: Make Cloud Run service publicly accessible (default: true)
+	PublicAccess *bool `yaml:"public_access,omitempty"`
+
+	// GCP-specific: Organization ID (optional, for creating projects under an organization)
+	OrganizationID string `yaml:"organization_id,omitempty"`
 }
 
 // CredentialsConfig contains cloud provider credentials.
 // Note: It's recommended to use CLI credentials or environment variables
 // instead of storing credentials in the manifest.
 type CredentialsConfig struct {
-	// Access key ID or equivalent
+	// AWS: Access key ID
 	AccessKeyID string `yaml:"access_key_id,omitempty"`
-	
-	// Secret access key or equivalent
+
+	// AWS: Secret access key
 	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
+
+	// GCP: Path to service account JSON key file
+	ServiceAccountKeyPath string `yaml:"service_account_key_path,omitempty"`
+
+	// GCP: Or provide service account JSON content directly (base64 encoded or raw JSON string)
+	ServiceAccountKeyJSON string `yaml:"service_account_key_json,omitempty"`
 }
 
 // ApplicationConfig defines the application being deployed.
@@ -130,9 +154,35 @@ type InstanceConfig struct {
 type HealthCheckConfig struct {
 	// Type of health check (basic or enhanced)
 	Type string `yaml:"type"`
-	
+
 	// Path to health check endpoint (e.g., /health, /api/status)
 	Path string `yaml:"path"`
+}
+
+// MonitoringConfig defines monitoring and metrics collection settings.
+type MonitoringConfig struct {
+	// Enable enhanced health reporting (default: false)
+	// Enhanced health provides detailed metrics like ApplicationRequests2xx, latency, etc.
+	EnhancedHealth bool `yaml:"enhanced_health,omitempty"`
+
+	// Enable CloudWatch custom metrics collection (default: false)
+	// This enables application-level metrics beyond basic EC2 metrics
+	CloudWatchMetrics bool `yaml:"cloudwatch_metrics,omitempty"`
+
+	// CloudWatch Logs configuration (optional)
+	CloudWatchLogs *CloudWatchLogsConfig `yaml:"cloudwatch_logs,omitempty"`
+}
+
+// CloudWatchLogsConfig defines CloudWatch Logs streaming settings.
+type CloudWatchLogsConfig struct {
+	// Enable streaming logs to CloudWatch (default: false)
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Log retention in days (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653)
+	RetentionDays int `yaml:"retention_days,omitempty"`
+
+	// Stream application logs (default: true if enabled)
+	StreamLogs bool `yaml:"stream_logs,omitempty"`
 }
 
 // IAMConfig specifies IAM roles and profiles to use.
@@ -184,5 +234,20 @@ func (m *Manifest) Validate() error {
 	if m.Environment.Name == "" {
 		return fmt.Errorf("environment name is required")
 	}
+
+	// GCP-specific validation
+	if m.Provider.Name == "gcp" {
+		if m.Provider.ProjectID == "" {
+			return fmt.Errorf("provider.project_id is required for GCP deployments")
+		}
+		if m.Provider.Credentials == nil ||
+			(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
+			return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
+		}
+		if m.Provider.BillingAccountID == "" {
+			return fmt.Errorf("provider.billing_account_id is required for GCP deployments")
+		}
+	}
+
 	return nil
 }

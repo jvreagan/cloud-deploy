@@ -1,0 +1,54 @@
+version: "1.0"
+
+# Example manifest demonstrating CloudWatch monitoring and enhanced health configuration
+# This configuration is ideal for production environments requiring comprehensive observability
+
+provider:
+  name: aws
+  region: us-east-1
+
+application:
+  name: my-monitored-app
+  description: "Application with full monitoring enabled"
+
+environment:
+  name: my-monitored-app-prod
+  cname: my-monitored-app-prod
+
+deployment:
+  platform: docker
+  # Solution stack will be auto-detected if not specified
+  source:
+    type: local
+    path: "."
+
+instance:
+  type: t3.small
+  environment_type: SingleInstance
+
+health_check:
+  type: enhanced  # Enable enhanced health reporting
+  path: /health   # Your application's health check endpoint
+
+# Monitoring configuration - enables CloudWatch metrics and logs
+monitoring:
+  # Enhanced health reporting (required for ApplicationRequests2xx, latency metrics, etc.)
+  enhanced_health: true
+
+  # Enable CloudWatch custom metrics collection
+  cloudwatch_metrics: true
+
+  # CloudWatch Logs configuration
+  cloudwatch_logs:
+    enabled: true         # Stream logs to CloudWatch
+    retention_days: 30    # Keep logs for 30 days (valid values: 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653)
+    stream_logs: true     # Stream application and health logs
+
+iam:
+  # Instance profile must have permissions for CloudWatch metrics and logs
+  instance_profile: aws-elasticbeanstalk-ec2-role
+
+tags:
+  Environment: production
+  ManagedBy: cloud-deploy
+  Monitoring: enabled

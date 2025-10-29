@@ -1,5 +1,23 @@
-# GCP Cloud Run deployment example (coming soon)
-# Note: GCP provider not yet implemented
+# GCP Cloud Run deployment example - FULLY SELF-SUFFICIENT
+# This manifest contains everything needed to deploy to GCP
+# No gcloud CLI required - cloud-deploy handles everything!
+#
+# What cloud-deploy will do automatically:
+# 1. Create the GCP project (if it doesn't exist)
+# 2. Link your billing account to the project
+# 3. Enable all required APIs (Cloud Build, Cloud Run, Storage, etc.)
+# 4. Build your Docker image using Cloud Build
+# 5. Deploy to Cloud Run
+# 6. Configure public access (if enabled)
+#
+# Prerequisites:
+# 1. Get a GCP service account key:
+#    - Go to: https://console.cloud.google.com/iam-admin/serviceaccounts
+#    - Create service account with roles: Owner or (Project Creator + Billing Account User + Service Usage Admin)
+#    - Create JSON key and download it
+# 2. Get your billing account ID:
+#    - Go to: https://console.cloud.google.com/billing
+#    - Copy the billing account ID (format: XXXXXX-XXXXXX-XXXXXX)
 
 version: "1.0"
 
@@ -7,29 +25,54 @@ provider:
   name: gcp
   region: us-central1
 
+  # Required: Your GCP project ID
+  # cloud-deploy will create this project if it doesn't exist
+  project_id: my-cloud-deploy-project
+
+  # Required: Your GCP billing account ID
+  # Find it at: https://console.cloud.google.com/billing
+  billing_account_id: XXXXXX-XXXXXX-XXXXXX
+
+  # Required: Service account credentials
+  # Option 1: Path to service account JSON key file (recommended)
+  credentials:
+    service_account_key_path: "/path/to/service-account-key.json"
+
+  # Option 2: Embed the JSON content directly (not recommended for production)
+  # credentials:
+  #   service_account_key_json: |
+  #     {
+  #       "type": "service_account",
+  #       "project_id": "...",
+  #       "private_key_id": "...",
+  #       ...
+  #     }
+
+  # Optional: Make service publicly accessible (default: true)
+  public_access: true
+
+  # Optional: Organization ID (if creating project under an organization)
+  # organization_id: "123456789012"
+
 application:
   name: my-gcp-app
-  description: "GCP Cloud Run application"
-  
+  description: "GCP Cloud Run application deployed via cloud-deploy"
+
 environment:
   name: my-gcp-app-env
-  cname: my-gcp-app
-  
+
 deployment:
   platform: docker
   source:
     type: local
     path: "."
-  
-instance:
-  type: cloudrun-1vcpu-256mb
-  environment_type: Serverless
-  
-health_check:
-  type: basic
-  path: /health
 
-# GCP-specific configuration
-# service_account: app-service-account@project.iam.gserviceaccount.com
-# max_instances: 10
-# timeout: 300s
+environment_variables:
+  NODE_ENV: production
+  LOG_LEVEL: info
+
+# Security Notes:
+# - Never commit service account keys to version control!
+# - Add this file to .gitignore if it contains real credentials
+# - Use service_account_key_path pointing to a file outside your repo
+# - For CI/CD, store credentials as secrets and inject them at runtime
