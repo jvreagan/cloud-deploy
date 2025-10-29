@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	cloud.google.com/go/cloudbuild v1.23.1
 	cloud.google.com/go/iam v1.5.2
+	cloud.google.com/go/logging v1.13.0
 	cloud.google.com/go/run v1.12.1
 	cloud.google.com/go/storage v1.57.0
 	github.com/aws/aws-sdk-go-v2 v1.36.6

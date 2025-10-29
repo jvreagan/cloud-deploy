@@ -67,6 +67,33 @@ deployment:
     type: local
     path: "."
 
+# Cloud Run specific configuration (optional)
+cloud_run:
+  # CPU allocation: "1", "2", "4" (default: "1")
+  cpu: "1"
+
+  # Memory: "256Mi", "512Mi", "1Gi", "2Gi", "4Gi" (default: "512Mi")
+  memory: "512Mi"
+
+  # Maximum concurrent requests per container (default: 80)
+  max_concurrency: 80
+
+  # Minimum instances (0 = scale to zero, default: 0)
+  min_instances: 0
+
+  # Maximum instances (default: 100)
+  max_instances: 10
+
+  # Request timeout in seconds (default: 300, max: 3600)
+  timeout_seconds: 300
+
+# Optional: Enable Cloud Logging
+monitoring:
+  cloudwatch_logs:
+    enabled: true
+    retention_days: 7
+    stream_logs: true
+
 environment_variables:
   NODE_ENV: production
   LOG_LEVEL: info

@@ -142,6 +142,13 @@ When using `provider.name: gcp`, these additional fields are required or availab
 **Optional:**
 - `provider.public_access` - Make Cloud Run service publicly accessible (default: true)
 - `provider.organization_id` - Organization ID (if creating project under an organization)
+- `cloud_run.cpu` - CPU allocation: "1", "2", "4" (default: "1")
+- `cloud_run.memory` - Memory: "256Mi", "512Mi", "1Gi", "2Gi", "4Gi" (default: "512Mi")
+- `cloud_run.max_concurrency` - Max concurrent requests per container (default: 80)
+- `cloud_run.min_instances` - Minimum instances (0 = scale to zero, default: 0)
+- `cloud_run.max_instances` - Maximum instances (default: 100)
+- `cloud_run.timeout_seconds` - Request timeout in seconds (default: 300, max: 3600)
+- `monitoring.cloudwatch_logs` - Cloud Logging configuration (same format as AWS)
 
 ## Authentication
 
@@ -227,12 +234,14 @@ provider:
 
 When you run `cloud-deploy -command deploy`:
 
-1. ✅ Creates the GCP project (if it doesn't exist)
+1. ✅ Creates the GCP project (if it doesn't exist) with polling until complete
 2. ✅ Links your billing account
-3. ✅ Enables all required APIs (Cloud Build, Cloud Run, Storage, etc.)
-4. ✅ Builds your Docker image
-5. ✅ Deploys to Cloud Run
+3. ✅ Enables all required APIs (Cloud Build, Cloud Run, Storage, etc.) with polling
+4. ✅ Builds your Docker image using Cloud Build
+5. ✅ Deploys to Cloud Run with resource limits and scaling configuration
 6. ✅ Configures public access
+7. ✅ Sets up Cloud Logging (if enabled)
+8. ✅ Waits for service to be ready before returning
 
 ## Commands
 

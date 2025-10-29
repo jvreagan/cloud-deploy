@@ -40,6 +40,9 @@ type Manifest struct {
 	
 	// Instance configuration (type, scaling)
 	Instance InstanceConfig `yaml:"instance"`
+
+	// Cloud Run configuration (GCP-specific) - optional
+	CloudRun *CloudRunConfig `yaml:"cloud_run,omitempty"`
 	
 	// Health check configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
@@ -145,9 +148,30 @@ type SourceConfig struct {
 type InstanceConfig struct {
 	// Type of instance (e.g., t3.micro, t3.small)
 	Type string `yaml:"type"`
-	
+
 	// Environment type: SingleInstance or LoadBalanced
 	EnvironmentType string `yaml:"environment_type"`
+}
+
+// CloudRunConfig specifies GCP Cloud Run-specific configuration.
+type CloudRunConfig struct {
+	// CPU allocation (e.g., "1", "2", "4") - default: "1"
+	CPU string `yaml:"cpu,omitempty"`
+
+	// Memory allocation (e.g., "256Mi", "512Mi", "1Gi", "2Gi") - default: "512Mi"
+	Memory string `yaml:"memory,omitempty"`
+
+	// Maximum number of concurrent requests per container - default: 80
+	MaxConcurrency int32 `yaml:"max_concurrency,omitempty"`
+
+	// Minimum number of instances to keep running - default: 0 (scale to zero)
+	MinInstances int32 `yaml:"min_instances,omitempty"`
+
+	// Maximum number of instances to scale to - default: 100
+	MaxInstances int32 `yaml:"max_instances,omitempty"`
+
+	// Request timeout in seconds (max: 3600 for 1st gen, 86400 for 2nd gen) - default: 300
+	TimeoutSeconds int32 `yaml:"timeout_seconds,omitempty"`
 }
 
 // HealthCheckConfig defines how the cloud provider should check application health.

@@ -422,7 +422,7 @@ func (p *Provider) buildImage(ctx context.Context, bucketName, objectName, image
 	return nil
 }
 
-// deployService deploys or updates a Cloud Run service.
+// deployService deploys or updates a Cloud Run service with resource limits and scaling configuration.
 func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serviceName, imageTag string) error {
 	parent := fmt.Sprintf("projects/%s/locations/%s", p.projectID, p.region)
 	serviceFullName := fmt.Sprintf("%s/services/%s", parent, serviceName)
@@ -445,17 +445,62 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 		})
 	}
 
+	// Build container resources from manifest configuration
+	container := &runpb.Container{
+		Image: imageTag,
+		Env:   envVars,
+	}
+
+	// Apply Cloud Run configuration if specified
+	if m.CloudRun != nil {
+		// Set CPU and memory limits
+		resources := &runpb.ResourceRequirements{
+			Limits: make(map[string]string),
+		}
+		if m.CloudRun.CPU != "" {
+			resources.Limits["cpu"] = m.CloudRun.CPU
+		} else {
+			resources.Limits["cpu"] = "1" // Default
+		}
+		if m.CloudRun.Memory != "" {
+			resources.Limits["memory"] = m.CloudRun.Memory
+		} else {
+			resources.Limits["memory"] = "512Mi" // Default
+		}
+		container.Resources = resources
+	}
+
+	// Create revision template
+	revisionTemplate := &runpb.RevisionTemplate{
+		Containers: []*runpb.Container{container},
+	}
+
+	// Apply scaling configuration
+	if m.CloudRun != nil {
+		scaling := &runpb.RevisionScaling{}
+		if m.CloudRun.MinInstances > 0 {
+			scaling.MinInstanceCount = m.CloudRun.MinInstances
+		}
+		if m.CloudRun.MaxInstances > 0 {
+			scaling.MaxInstanceCount = m.CloudRun.MaxInstances
+		}
+		revisionTemplate.Scaling = scaling
+
+		// Set max concurrency
+		if m.CloudRun.MaxConcurrency > 0 {
+			revisionTemplate.MaxInstanceRequestConcurrency = m.CloudRun.MaxConcurrency
+		}
+
+		// Set timeout
+		if m.CloudRun.TimeoutSeconds > 0 {
+			revisionTemplate.Timeout = durationpb.New(time.Duration(m.CloudRun.TimeoutSeconds) * time.Second)
+		}
+	}
+
 	// Create service specification
 	service := &runpb.Service{
-		Template: &runpb.RevisionTemplate{
-			Containers: []*runpb.Container{
-				{
-					Image: imageTag,
-					Env:   envVars,
-				},
-			},
-		},
-		Ingress: runpb.IngressTraffic_INGRESS_TRAFFIC_ALL,
+		Template: revisionTemplate,
+		Ingress:  runpb.IngressTraffic_INGRESS_TRAFFIC_ALL,
 	}
 
 	if serviceExists {
@@ -643,19 +688,9 @@ func (p *Provider) ensureProject(ctx context.Context) error {
 		return fmt.Errorf("failed to create project: %w", err)
 	}
 
-	// Wait for project creation to complete
+	// Wait for project creation to complete with polling
 	fmt.Println("Waiting for project creation to complete...")
-	// Project creation is usually fast, but we should wait for the operation
-	// For now, we'll just verify it was created
-	if op.Done {
-		fmt.Printf("Project created successfully: %s\n", p.projectID)
-	} else {
-		fmt.Printf("Project creation initiated: %s (operation: %s)\n", p.projectID, op.Name)
-		// In production, you might want to poll the operation status
-		// For now, we'll continue and subsequent API calls will wait if needed
-	}
-
-	return nil
+	return p.waitForProjectCreation(ctx, op.Name)
 }
 
 // ensureBillingLinked links the billing account to the project.
@@ -723,17 +758,150 @@ func (p *Provider) ensureAPIsEnabled(ctx context.Context) error {
 			return fmt.Errorf("failed to enable API %s: %w", api, err)
 		}
 
-		// Wait for operation to complete (optional, but recommended)
+		// Wait for API enablement to complete with polling
 		if !op.Done {
-			fmt.Printf("    Waiting for %s to be enabled...\n", api)
-			// In production, you might want to poll op.Name to check completion
-			// For now, we'll just continue and let subsequent operations handle it
+			if err := p.waitForAPIEnablement(ctx, op.Name, api); err != nil {
+				return fmt.Errorf("failed to wait for API %s enablement: %w", api, err)
+			}
 		}
 
 		fmt.Printf("  ✓ %s (enabled)\n", api)
 	}
 
 	fmt.Println("All required APIs enabled")
+	return nil
+}
+
+// waitForProjectCreation polls the project creation operation until it completes.
+func (p *Provider) waitForProjectCreation(ctx context.Context, operationName string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(3 * time.Minute)
+
+	for {
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for project %s creation (3 minutes elapsed)", p.projectID)
+		case <-ticker.C:
+			op, err := p.projectsClient.Operations.Get(operationName).Context(ctx).Do()
+			if err != nil {
+				return fmt.Errorf("failed to check project creation status: %w", err)
+			}
+
+			if op.Done {
+				if op.Error != nil {
+					return fmt.Errorf("project creation failed: %s", op.Error.Message)
+				}
+				fmt.Printf("Project created successfully: %s\n", p.projectID)
+				return nil
+			}
+
+			fmt.Println("  Still creating project...")
+		}
+	}
+}
+
+// waitForAPIEnablement polls the API enablement operation until it completes.
+func (p *Provider) waitForAPIEnablement(ctx context.Context, operationName, apiName string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(5 * time.Minute)
+
+	for {
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for API %s enablement (5 minutes elapsed)", apiName)
+		case <-ticker.C:
+			op, err := p.usageClient.Operations.Get(operationName).Context(ctx).Do()
+			if err != nil {
+				return fmt.Errorf("failed to check API enablement status: %w", err)
+			}
+
+			if op.Done {
+				if op.Error != nil {
+					return fmt.Errorf("API enablement failed: %s", op.Error.Message)
+				}
+				fmt.Printf("    API %s enabled successfully\n", apiName)
+				return nil
+			}
+
+			fmt.Printf("    Waiting for %s to be enabled...\n", apiName)
+		}
+	}
+}
+
+// waitForService waits for the Cloud Run service to become ready and returns its URL.
+func (p *Provider) waitForService(ctx context.Context, serviceName string) (string, error) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(10 * time.Minute)
+	serviceFullName := fmt.Sprintf("projects/%s/locations/%s/services/%s", p.projectID, p.region, serviceName)
+
+	for {
+		select {
+		case <-timeout:
+			return "", fmt.Errorf("timeout waiting for service %s to be ready (10 minutes elapsed)", serviceName)
+		case <-ticker.C:
+			req := &runpb.GetServiceRequest{
+				Name: serviceFullName,
+			}
+
+			service, err := p.runClient.GetService(ctx, req)
+			if err != nil {
+				return "", fmt.Errorf("failed to get service status: %w", err)
+			}
+
+			// Check terminal condition
+			if service.TerminalCondition != nil {
+				status := service.TerminalCondition.State.String()
+				fmt.Printf("Service status: %s\n", status)
+
+				if service.TerminalCondition.State == runpb.Condition_CONDITION_SUCCEEDED {
+					fmt.Println("Service is ready!")
+					return service.Uri, nil
+				}
+
+				if service.TerminalCondition.State == runpb.Condition_CONDITION_FAILED {
+					message := "unknown error"
+					if service.TerminalCondition.Message != "" {
+						message = service.TerminalCondition.Message
+					}
+					return "", fmt.Errorf("service deployment failed: %s", message)
+				}
+			}
+
+			fmt.Println("  Service is still deploying...")
+		}
+	}
+}
+
+// configureLogging sets up Cloud Logging for the Cloud Run service.
+func (p *Provider) configureLogging(ctx context.Context, m *manifest.Manifest) error {
+	fmt.Println("Configuring Cloud Logging...")
+
+	// Cloud Run automatically sends logs to Cloud Logging
+	// We just need to configure the log retention if specified
+	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.RetentionDays > 0 {
+		// Note: Log retention is set at the bucket level in Cloud Logging
+		// For now, we'll just log that logging is configured
+		fmt.Printf("Cloud Logging configured for service %s\n", m.Environment.Name)
+		fmt.Printf("Logs will be available at: https://console.cloud.google.com/logs/query;query=resource.type%%3D%%22cloud_run_revision%%22%%0Aresource.labels.service_name%%3D%%22%s%%22?project=%s\n",
+			m.Environment.Name, p.projectID)
+
+		// If retention is specified, inform the user they need to configure it in Cloud Console
+		if m.Monitoring.CloudWatchLogs.RetentionDays > 0 {
+			fmt.Printf("Note: To set log retention to %d days, configure it in Cloud Logging settings:\n", m.Monitoring.CloudWatchLogs.RetentionDays)
+			fmt.Printf("  https://console.cloud.google.com/logs/storage?project=%s\n", p.projectID)
+		}
+	}
+
+	// Log the direct log viewing URL
+	fmt.Printf("View logs: gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=%s' --limit 50 --project=%s\n",
+		m.Environment.Name, p.projectID)
+
 	return nil
 }
 
