@@ -7,6 +7,7 @@
 ## Features
 
 - 📝 **Declarative Configuration** - Define your entire deployment in a single YAML manifest
+- 🌐 **Web UI** - Generate manifests with a simple web interface
 - ☁️ **Multi-Cloud Support** - Deploy to AWS, GCP, Azure, and OCI with the same tool
 - 🚀 **Fully Automated** - Creates applications, environments, and deploys via cloud APIs - no console needed
 - 🔄 **Idempotent** - Run the same command repeatedly safely
@@ -25,6 +26,27 @@
 
 ## Installation
 
+### Homebrew (macOS and Linux) - Recommended
+
+```bash
+# Add the tap
+brew tap jvreagan/tap
+
+# Install cloud-deploy (includes both CLI and Web UI)
+brew install cloud-deploy
+
+# Verify installation
+cloud-deploy -version
+```
+
+Both the CLI tool and Web UI are installed:
+- `cloud-deploy` - Main CLI tool
+- `manifest-ui` - Web UI server
+
+### From Source
+
+#### CLI Tool
+
 ```bash
 # Clone the repository
 git clone https://github.com/jvreagan/cloud-deploy
@@ -37,7 +59,32 @@ go build -o cloud-deploy cmd/cloud-deploy/main.go
 go install github.com/jvreagan/cloud-deploy/cmd/cloud-deploy@latest
 ```
 
+#### Web UI (Manifest Generator)
+
+No build required! Run directly from source:
+
+```bash
+# After cloning the repository
+cd cloud-deploy
+go run cmd/manifest-ui/main.go
+```
+
+Then open your browser to **http://localhost:5001** to use the visual manifest generator.
+
+See the [Web UI section](#web-ui---manifest-generator) below for more details.
+
 ## Quick Start
+
+### Option 1: Using the Web UI (Recommended for beginners)
+
+```bash
+# Start the manifest generator
+go run cmd/manifest-ui/main.go
+```
+
+Open http://localhost:5001 in your browser, fill out the form, and generate your manifest!
+
+### Option 2: Manual YAML Creation
 
 1. Create a deployment manifest (`deploy-manifest.yaml`):
 
@@ -80,7 +127,11 @@ monitoring:
 2. Deploy your application:
 
 ```bash
+# If you created the manifest manually
 cloud-deploy -command deploy -manifest deploy-manifest.yaml
+
+# Or if you used the Web UI
+cloud-deploy -command deploy -manifest generated-manifests/aws-manifest-20241029-123456.yaml
 ```
 
 3. Check deployment status:
@@ -101,9 +152,46 @@ cloud-deploy -command stop -manifest deploy-manifest.yaml
 cloud-deploy -command destroy -manifest deploy-manifest.yaml
 ```
 
+## Web UI - Manifest Generator
+
+Prefer a visual interface? Use the built-in web UI to generate manifests without writing YAML!
+
+### Start the Web UI
+
+```bash
+go run cmd/manifest-ui/main.go
+```
+
+Then open your browser to: **http://localhost:5001**
+
+### Features
+
+- ✨ Interactive form-based interface
+- 🔄 Dynamic fields based on provider selection (AWS or GCP)
+- ✅ Built-in validation for required fields
+- 📋 Help text and examples for all options
+- 💾 Auto-saves manifests to `generated-manifests/` directory
+- 🧪 Fully tested with comprehensive test suite
+
+### Using the Web UI
+
+1. **Select provider** - Choose AWS or GCP
+2. **Fill in the form** - Required fields are marked with *
+3. **Generate manifest** - Click the button to create your YAML file
+4. **Deploy** - Use the generated manifest with cloud-deploy:
+   ```bash
+   cloud-deploy -command deploy -manifest generated-manifests/aws-manifest-20241029-123456.yaml
+   ```
+
+See [cmd/manifest-ui/README.md](cmd/manifest-ui/README.md) for detailed documentation.
+
 ## Manifest Reference
 
-See [deploy-manifest.example.yaml](deploy-manifest.example.yaml) for a complete example with all available options.
+**Quick Reference**: See [deploy-manifest.example.yaml](deploy-manifest.example.yaml) for a complete example with all available options.
+
+**Detailed Documentation**:
+- **AWS**: See the [AWS Deployment Guide](docs/AWS.md) for complete field documentation
+- **GCP**: See the [GCP Deployment Guide](docs/GCP.md) for complete field documentation
 
 ### Required Fields
 
@@ -142,15 +230,17 @@ When using `provider.name: gcp`, these additional fields are required or availab
 **Optional:**
 - `provider.public_access` - Make Cloud Run service publicly accessible (default: true)
 - `provider.organization_id` - Organization ID (if creating project under an organization)
-- `cloud_run.cpu` - CPU allocation: "1", "2", "4" (default: "1")
-- `cloud_run.memory` - Memory: "256Mi", "512Mi", "1Gi", "2Gi", "4Gi" (default: "512Mi")
-- `cloud_run.max_concurrency` - Max concurrent requests per container (default: 80)
-- `cloud_run.min_instances` - Minimum instances (0 = scale to zero, default: 0)
-- `cloud_run.max_instances` - Maximum instances (default: 100)
-- `cloud_run.timeout_seconds` - Request timeout in seconds (default: 300, max: 3600)
+- `cloud_run.*` - Cloud Run resource configuration (CPU, memory, scaling, timeout)
+  - See [GCP Guide](docs/GCP.md#cloud-run-configuration) for complete configuration options
 - `monitoring.cloudwatch_logs` - Cloud Logging configuration (same format as AWS)
 
-## Authentication
+**📖 Complete Field Reference**: [GCP Deployment Guide - Required & Optional Fields](docs/GCP.md#required-fields)
+
+## Quick Start: Authentication
+
+> 📖 **For detailed authentication guides, see:**
+> - [AWS Authentication Guide](docs/AWS.md#authentication)
+> - [GCP Authentication Guide](docs/GCP.md#authentication)
 
 ### AWS
 
@@ -183,6 +273,8 @@ Use AWS credentials for Elastic Beanstalk deployments. Credentials can be provid
 ### GCP
 
 **No gcloud CLI required!** cloud-deploy is completely self-sufficient for GCP deployments.
+
+> 📖 **For complete GCP setup instructions with screenshots and detailed steps, see the [GCP Deployment Guide](docs/GCP.md#authentication)**
 
 #### Step 1: Create a Service Account
 
@@ -265,6 +357,8 @@ When you run `cloud-deploy -command deploy`:
 cloud-deploy -command deploy
 ```
 
+> 📖 **For detailed comparison with other tools and feature breakdown, see the [Features Guide](docs/FEATURES.md)**
+
 ## Comparison
 
 | Tool | Multi-Cloud | Declarative | Docker Support | Learning Curve |
@@ -300,9 +394,35 @@ The `examples/` directory contains several deployment manifests:
 
 ## Documentation
 
-- [Monitoring Guide](docs/MONITORING.md) - CloudWatch metrics, enhanced health, and logging configuration
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design and implementation details
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to the project
+### 📚 Comprehensive Guides
+
+- **[Features Overview](docs/FEATURES.md)** - Complete feature list, provider comparison, and what cloud-deploy offers
+- **[AWS Deployment Guide](docs/AWS.md)** - Everything you need to deploy to AWS Elastic Beanstalk
+  - Prerequisites and authentication
+  - Required and optional fields
+  - Monitoring and CloudWatch integration
+  - Best practices and troubleshooting
+  - Complete examples
+- **[GCP Deployment Guide](docs/GCP.md)** - Complete guide for Google Cloud Run deployments
+  - Self-sufficient setup (no gcloud CLI required)
+  - Service account creation
+  - Cloud Run configuration (CPU, memory, scaling)
+  - Cloud Logging integration
+  - Best practices and cost optimization
+  - Troubleshooting guide
+- **[Monitoring Guide](docs/MONITORING.md)** - CloudWatch metrics, enhanced health, and logging configuration
+
+### 🎯 Quick Links
+
+**Getting Started:**
+1. Read [Features Overview](docs/FEATURES.md) to understand what cloud-deploy does
+2. Choose your provider: [AWS Guide](docs/AWS.md) or [GCP Guide](docs/GCP.md)
+3. Review [examples/](examples/) for reference manifests
+4. Deploy your first application!
+
+**Advanced Topics:**
+- [Monitoring and Logging](docs/MONITORING.md)
+- [Contributing Guide](CONTRIBUTING.md)
 
 ## Contributing
 

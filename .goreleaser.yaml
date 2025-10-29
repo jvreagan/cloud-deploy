@@ -1,0 +1,138 @@
+# GoReleaser configuration for cloud-deploy
+# This automates building, packaging, and releasing binaries
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  # Main CLI tool
+  - id: cloud-deploy
+    main: ./cmd/cloud-deploy
+    binary: cloud-deploy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  # Web UI server
+  - id: manifest-ui
+    main: ./cmd/manifest-ui
+    binary: manifest-ui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - cmd/manifest-ui/README.md
+      - web/**/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+# Homebrew tap
+brews:
+  - name: cloud-deploy
+
+    # GitHub repository for the tap
+    tap:
+      owner: jvreagan
+      name: homebrew-tap
+      # If you want to use a different repo name, change above
+      # Otherwise create a repo called homebrew-tap
+
+    # URL template for downloading
+    url_template: "https://github.com/jvreagan/cloud-deploy/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+
+    # Git author for commits
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+    # Folder inside the repository
+    folder: Formula
+
+    homepage: "https://github.com/jvreagan/cloud-deploy"
+    description: "Manifest-driven multi-cloud deployment tool for AWS, GCP, Azure, and OCI"
+    license: "MIT"
+
+    # Install both binaries
+    install: |
+      bin.install "cloud-deploy"
+      bin.install "manifest-ui"
+
+      # Install web UI assets
+      (prefix/"web").install Dir["web/*"]
+
+    # Test installation
+    test: |
+      system "#{bin}/cloud-deploy", "-version"
+      system "#{bin}/manifest-ui", "-h"
+
+    # Dependencies (none needed for Go binaries)
+    dependencies: []
+
+# Docker images (optional - for future use)
+# dockers:
+#   - image_templates:
+#       - "jvreagan/cloud-deploy:{{ .Tag }}"
+#       - "jvreagan/cloud-deploy:latest"
+#     dockerfile: Dockerfile
+#     build_flag_templates:
+#       - "--pull"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.title={{.ProjectName}}"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
+
+# Announce (optional - can announce releases to various platforms)
+# announce:
+#   twitter:
+#     enabled: true
+#     message_template: 'cloud-deploy {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'

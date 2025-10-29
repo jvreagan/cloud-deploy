@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Deploy - Manifest Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .form-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .form-section h2 {
+            color: #444;
+            margin-bottom: 15px;
+            font-size: 18px;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        .required {
+            color: red;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 5px;
+        }
+
+        .checkbox-label {
+            display: inline;
+            font-weight: normal;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #777;
+            margin-top: 3px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .button-group {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+
+        .message {
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .provider-select {
+            font-size: 16px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        @media (max-width: 600px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cloud Deploy Manifest Generator</h1>
+        <p class="subtitle">Generate deployment manifests for AWS and GCP</p>
+
+        <form id="manifestForm">
+            <!-- Provider Selection -->
+            <div class="form-section">
+                <h2>Cloud Provider</h2>
+                <div class="form-group">
+                    <label for="provider">Select Provider <span class="required">*</span></label>
+                    <select id="provider" class="provider-select" required>
+                        <option value="">-- Choose a provider --</option>
+                        <option value="aws">AWS (Elastic Beanstalk)</option>
+                        <option value="gcp">GCP (Cloud Run)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Common Fields (shown for both providers) -->
+            <div id="commonFields" class="hidden">
+                <!-- Application Section -->
+                <div class="form-section">
+                    <h2>Application</h2>
+                    <div class="form-group">
+                        <label for="appName">Application Name <span class="required">*</span></label>
+                        <input type="text" id="appName" required>
+                        <div class="help-text">Unique name for your application</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="appDescription">Description</label>
+                        <input type="text" id="appDescription">
+                        <div class="help-text">Optional description of your application</div>
+                    </div>
+                </div>
+
+                <!-- Environment Section -->
+                <div class="form-section">
+                    <h2>Environment</h2>
+                    <div class="form-group">
+                        <label for="envName">Environment Name <span class="required">*</span></label>
+                        <input type="text" id="envName" required>
+                        <div class="help-text">Name for this deployment environment</div>
+                    </div>
+                    <div class="form-group" id="cnameGroup">
+                        <label for="cname">CNAME Prefix</label>
+                        <input type="text" id="cname">
+                        <div class="help-text">Custom subdomain (AWS only)</div>
+                    </div>
+                </div>
+
+                <!-- Deployment Section -->
+                <div class="form-section">
+                    <h2>Deployment</h2>
+                    <div class="form-group">
+                        <label for="platform">Platform</label>
+                        <select id="platform">
+                            <option value="docker">Docker</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="sourceType">Source Type <span class="required">*</span></label>
+                        <select id="sourceType" required>
+                            <option value="local">Local Directory</option>
+                            <option value="s3">S3 Bucket</option>
+                            <option value="git">Git Repository</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="sourcePath">Source Path <span class="required">*</span></label>
+                        <input type="text" id="sourcePath" value="." required>
+                        <div class="help-text">Path to your application source</div>
+                    </div>
+                </div>
+
+                <!-- Environment Variables -->
+                <div class="form-section">
+                    <h2>Environment Variables</h2>
+                    <div class="form-group">
+                        <label for="envVars">Environment Variables (JSON format)</label>
+                        <textarea id="envVars" rows="4" placeholder='{"KEY1": "value1", "KEY2": "value2"}'></textarea>
+                        <div class="help-text">Optional: Enter as JSON object</div>
+                    </div>
+                </div>
+
+                <!-- Tags -->
+                <div class="form-section">
+                    <h2>Tags</h2>
+                    <div class="form-group">
+                        <label for="tags">Tags (JSON format)</label>
+                        <textarea id="tags" rows="4" placeholder='{"Environment": "production", "Team": "backend"}'></textarea>
+                        <div class="help-text">Optional: Enter as JSON object</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AWS-Specific Fields -->
+            <div id="awsFields" class="hidden">
+                <div class="form-section">
+                    <h2>AWS Configuration</h2>
+                    <div class="form-group">
+                        <label for="awsRegion">Region <span class="required">*</span></label>
+                        <select id="awsRegion" required>
+                            <option value="">-- Select region --</option>
+                            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                            <option value="us-east-2">us-east-2 (Ohio)</option>
+                            <option value="us-west-1">us-west-1 (N. California)</option>
+                            <option value="us-west-2">us-west-2 (Oregon)</option>
+                            <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                            <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                            <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="solutionStack">Solution Stack</label>
+                        <input type="text" id="solutionStack" placeholder="e.g., 64bit Amazon Linux 2023 v4.7.2 running Docker">
+                        <div class="help-text">Leave blank for auto-detection</div>
+                    </div>
+                </div>
+
+                <!-- Instance Configuration -->
+                <div class="form-section">
+                    <h2>Instance Configuration</h2>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="instanceType">Instance Type</label>
+                            <select id="instanceType">
+                                <option value="">-- Select type --</option>
+                                <option value="t3.micro">t3.micro</option>
+                                <option value="t3.small">t3.small</option>
+                                <option value="t3.medium">t3.medium</option>
+                                <option value="t3.large">t3.large</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="envType">Environment Type</label>
+                            <select id="envType">
+                                <option value="">-- Select type --</option>
+                                <option value="SingleInstance">Single Instance</option>
+                                <option value="LoadBalanced">Load Balanced</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Health Check -->
+                <div class="form-section">
+                    <h2>Health Check</h2>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="healthCheckType">Type</label>
+                            <select id="healthCheckType">
+                                <option value="">-- Select type --</option>
+                                <option value="basic">Basic</option>
+                                <option value="enhanced">Enhanced</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="healthCheckPath">Path</label>
+                            <input type="text" id="healthCheckPath" placeholder="/health">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monitoring -->
+                <div class="form-section">
+                    <h2>Monitoring</h2>
+                    <div class="form-group">
+                        <input type="checkbox" id="enhancedHealth">
+                        <label for="enhancedHealth" class="checkbox-label">Enable Enhanced Health Reporting</label>
+                    </div>
+                    <div class="form-group">
+                        <input type="checkbox" id="cloudwatchMetrics">
+                        <label for="cloudwatchMetrics" class="checkbox-label">Enable CloudWatch Metrics</label>
+                    </div>
+                    <div class="form-group">
+                        <input type="checkbox" id="cloudwatchLogs">
+                        <label for="cloudwatchLogs" class="checkbox-label">Enable CloudWatch Logs</label>
+                    </div>
+                    <div id="logsConfig" class="hidden">
+                        <div class="two-column">
+                            <div class="form-group">
+                                <label for="logRetention">Log Retention (days)</label>
+                                <input type="number" id="logRetention" placeholder="7">
+                            </div>
+                            <div class="form-group">
+                                <label for="streamLogs">Stream Logs</label>
+                                <input type="checkbox" id="streamLogs">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IAM -->
+                <div class="form-section">
+                    <h2>IAM</h2>
+                    <div class="form-group">
+                        <label for="instanceProfile">Instance Profile</label>
+                        <input type="text" id="instanceProfile">
+                        <div class="help-text">IAM instance profile ARN</div>
+                    </div>
+                </div>
+
+                <!-- AWS Credentials -->
+                <div class="form-section">
+                    <h2>AWS Credentials (Optional)</h2>
+                    <div class="help-text" style="margin-bottom: 10px;">Leave blank to use AWS CLI credentials</div>
+                    <div class="form-group">
+                        <label for="awsAccessKey">Access Key ID</label>
+                        <input type="text" id="awsAccessKey">
+                    </div>
+                    <div class="form-group">
+                        <label for="awsSecretKey">Secret Access Key</label>
+                        <input type="text" id="awsSecretKey">
+                    </div>
+                </div>
+            </div>
+
+            <!-- GCP-Specific Fields -->
+            <div id="gcpFields" class="hidden">
+                <div class="form-section">
+                    <h2>GCP Configuration</h2>
+                    <div class="form-group">
+                        <label for="gcpRegion">Region <span class="required">*</span></label>
+                        <select id="gcpRegion" required>
+                            <option value="">-- Select region --</option>
+                            <option value="us-central1">us-central1 (Iowa)</option>
+                            <option value="us-east1">us-east1 (South Carolina)</option>
+                            <option value="us-west1">us-west1 (Oregon)</option>
+                            <option value="europe-west1">europe-west1 (Belgium)</option>
+                            <option value="asia-east1">asia-east1 (Taiwan)</option>
+                            <option value="asia-northeast1">asia-northeast1 (Tokyo)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="projectId">Project ID <span class="required">*</span></label>
+                        <input type="text" id="projectId" required>
+                        <div class="help-text">GCP project ID (will be created if it doesn't exist)</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="billingAccountId">Billing Account ID <span class="required">*</span></label>
+                        <input type="text" id="billingAccountId" placeholder="XXXXXX-XXXXXX-XXXXXX" required>
+                        <div class="help-text">Format: XXXXXX-XXXXXX-XXXXXX</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="organizationId">Organization ID</label>
+                        <input type="text" id="organizationId">
+                        <div class="help-text">Optional: For creating project under an organization</div>
+                    </div>
+                    <div class="form-group">
+                        <input type="checkbox" id="publicAccess" checked>
+                        <label for="publicAccess" class="checkbox-label">Make service publicly accessible</label>
+                    </div>
+                </div>
+
+                <!-- Cloud Run Configuration -->
+                <div class="form-section">
+                    <h2>Cloud Run Configuration</h2>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="cpu">CPU</label>
+                            <select id="cpu">
+                                <option value="">-- Default (1) --</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="memory">Memory</label>
+                            <select id="memory">
+                                <option value="">-- Default (512Mi) --</option>
+                                <option value="256Mi">256Mi</option>
+                                <option value="512Mi">512Mi</option>
+                                <option value="1Gi">1Gi</option>
+                                <option value="2Gi">2Gi</option>
+                                <option value="4Gi">4Gi</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="minInstances">Min Instances</label>
+                            <input type="number" id="minInstances" placeholder="0" min="0">
+                            <div class="help-text">0 = scale to zero</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="maxInstances">Max Instances</label>
+                            <input type="number" id="maxInstances" placeholder="100" min="1">
+                        </div>
+                    </div>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="maxConcurrency">Max Concurrency</label>
+                            <input type="number" id="maxConcurrency" placeholder="80" min="1">
+                            <div class="help-text">Requests per container</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="timeoutSeconds">Timeout (seconds)</label>
+                            <input type="number" id="timeoutSeconds" placeholder="300" min="1" max="3600">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GCP Credentials -->
+                <div class="form-section">
+                    <h2>GCP Credentials <span class="required">*</span></h2>
+                    <div class="form-group">
+                        <label for="serviceAccountKeyPath">Service Account Key Path <span class="required">*</span></label>
+                        <input type="text" id="serviceAccountKeyPath" placeholder="/path/to/service-account-key.json" required>
+                        <div class="help-text">Path to service account JSON key file</div>
+                    </div>
+                </div>
+
+                <!-- GCP Monitoring -->
+                <div class="form-section">
+                    <h2>Monitoring</h2>
+                    <div class="form-group">
+                        <input type="checkbox" id="gcpCloudLogging">
+                        <label for="gcpCloudLogging" class="checkbox-label">Enable Cloud Logging</label>
+                    </div>
+                    <div id="gcpLogsConfig" class="hidden">
+                        <div class="two-column">
+                            <div class="form-group">
+                                <label for="gcpLogRetention">Log Retention (days)</label>
+                                <input type="number" id="gcpLogRetention" placeholder="7">
+                            </div>
+                            <div class="form-group">
+                                <input type="checkbox" id="gcpStreamLogs">
+                                <label for="gcpStreamLogs" class="checkbox-label">Stream Logs</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit Buttons -->
+            <div class="button-group">
+                <button type="submit" class="btn-primary">Generate Manifest</button>
+                <button type="reset" class="btn-secondary">Reset Form</button>
+            </div>
+        </form>
+
+        <!-- Message Area -->
+        <div id="messageArea"></div>
+    </div>
+
+    <script>
+        // Provider selection handler
+        document.getElementById('provider').addEventListener('change', function() {
+            const provider = this.value;
+            const commonFields = document.getElementById('commonFields');
+            const awsFields = document.getElementById('awsFields');
+            const gcpFields = document.getElementById('gcpFields');
+
+            if (provider) {
+                commonFields.classList.remove('hidden');
+                if (provider === 'aws') {
+                    awsFields.classList.remove('hidden');
+                    gcpFields.classList.add('hidden');
+                    // Enable/disable required fields
+                    document.getElementById('awsRegion').required = true;
+                    document.getElementById('gcpRegion').required = false;
+                    document.getElementById('projectId').required = false;
+                    document.getElementById('billingAccountId').required = false;
+                    document.getElementById('serviceAccountKeyPath').required = false;
+                } else if (provider === 'gcp') {
+                    gcpFields.classList.remove('hidden');
+                    awsFields.classList.add('hidden');
+                    // Enable/disable required fields
+                    document.getElementById('gcpRegion').required = true;
+                    document.getElementById('projectId').required = true;
+                    document.getElementById('billingAccountId').required = true;
+                    document.getElementById('serviceAccountKeyPath').required = true;
+                    document.getElementById('awsRegion').required = false;
+                }
+            } else {
+                commonFields.classList.add('hidden');
+                awsFields.classList.add('hidden');
+                gcpFields.classList.add('hidden');
+            }
+        });
+
+        // CloudWatch logs checkbox handler
+        document.getElementById('cloudwatchLogs').addEventListener('change', function() {
+            const logsConfig = document.getElementById('logsConfig');
+            if (this.checked) {
+                logsConfig.classList.remove('hidden');
+            } else {
+                logsConfig.classList.add('hidden');
+            }
+        });
+
+        // GCP Cloud Logging checkbox handler
+        document.getElementById('gcpCloudLogging').addEventListener('change', function() {
+            const logsConfig = document.getElementById('gcpLogsConfig');
+            if (this.checked) {
+                logsConfig.classList.remove('hidden');
+            } else {
+                logsConfig.classList.add('hidden');
+            }
+        });
+
+        // Form submission
+        document.getElementById('manifestForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const provider = document.getElementById('provider').value;
+            const messageArea = document.getElementById('messageArea');
+
+            // Build the manifest object
+            const manifest = {
+                version: "1.0",
+                provider: {
+                    name: provider
+                },
+                application: {
+                    name: document.getElementById('appName').value,
+                    description: document.getElementById('appDescription').value || undefined
+                },
+                environment: {
+                    name: document.getElementById('envName').value
+                },
+                deployment: {
+                    platform: document.getElementById('platform').value || "docker",
+                    source: {
+                        type: document.getElementById('sourceType').value,
+                        path: document.getElementById('sourcePath').value
+                    }
+                }
+            };
+
+            // Add AWS-specific fields
+            if (provider === 'aws') {
+                manifest.provider.region = document.getElementById('awsRegion').value;
+
+                const solutionStack = document.getElementById('solutionStack').value;
+                if (solutionStack) {
+                    manifest.deployment.solution_stack = solutionStack;
+                }
+
+                const cname = document.getElementById('cname').value;
+                if (cname) {
+                    manifest.environment.cname = cname;
+                }
+
+                // Instance config
+                const instanceType = document.getElementById('instanceType').value;
+                const envType = document.getElementById('envType').value;
+                if (instanceType || envType) {
+                    manifest.instance = {};
+                    if (instanceType) manifest.instance.type = instanceType;
+                    if (envType) manifest.instance.environment_type = envType;
+                }
+
+                // Health check
+                const healthCheckType = document.getElementById('healthCheckType').value;
+                const healthCheckPath = document.getElementById('healthCheckPath').value;
+                if (healthCheckType || healthCheckPath) {
+                    manifest.health_check = {};
+                    if (healthCheckType) manifest.health_check.type = healthCheckType;
+                    if (healthCheckPath) manifest.health_check.path = healthCheckPath;
+                }
+
+                // Monitoring
+                const enhancedHealth = document.getElementById('enhancedHealth').checked;
+                const cloudwatchMetrics = document.getElementById('cloudwatchMetrics').checked;
+                const cloudwatchLogs = document.getElementById('cloudwatchLogs').checked;
+
+                if (enhancedHealth || cloudwatchMetrics || cloudwatchLogs) {
+                    manifest.monitoring = {};
+                    if (enhancedHealth) manifest.monitoring.enhanced_health = true;
+                    if (cloudwatchMetrics) manifest.monitoring.cloudwatch_metrics = true;
+                    if (cloudwatchLogs) {
+                        manifest.monitoring.cloudwatch_logs = {
+                            enabled: true
+                        };
+                        const logRetention = document.getElementById('logRetention').value;
+                        if (logRetention) {
+                            manifest.monitoring.cloudwatch_logs.retention_days = parseInt(logRetention);
+                        }
+                        if (document.getElementById('streamLogs').checked) {
+                            manifest.monitoring.cloudwatch_logs.stream_logs = true;
+                        }
+                    }
+                }
+
+                // IAM
+                const instanceProfile = document.getElementById('instanceProfile').value;
+                if (instanceProfile) {
+                    manifest.iam = { instance_profile: instanceProfile };
+                }
+
+                // Credentials
+                const awsAccessKey = document.getElementById('awsAccessKey').value;
+                const awsSecretKey = document.getElementById('awsSecretKey').value;
+                if (awsAccessKey && awsSecretKey) {
+                    manifest.provider.credentials = {
+                        access_key_id: awsAccessKey,
+                        secret_access_key: awsSecretKey
+                    };
+                }
+            }
+
+            // Add GCP-specific fields
+            if (provider === 'gcp') {
+                manifest.provider.region = document.getElementById('gcpRegion').value;
+                manifest.provider.project_id = document.getElementById('projectId').value;
+                manifest.provider.billing_account_id = document.getElementById('billingAccountId').value;
+
+                const organizationId = document.getElementById('organizationId').value;
+                if (organizationId) {
+                    manifest.provider.organization_id = organizationId;
+                }
+
+                manifest.provider.public_access = document.getElementById('publicAccess').checked;
+
+                // Cloud Run config
+                const cpu = document.getElementById('cpu').value;
+                const memory = document.getElementById('memory').value;
+                const minInstances = document.getElementById('minInstances').value;
+                const maxInstances = document.getElementById('maxInstances').value;
+                const maxConcurrency = document.getElementById('maxConcurrency').value;
+                const timeoutSeconds = document.getElementById('timeoutSeconds').value;
+
+                if (cpu || memory || minInstances || maxInstances || maxConcurrency || timeoutSeconds) {
+                    manifest.cloud_run = {};
+                    if (cpu) manifest.cloud_run.cpu = cpu;
+                    if (memory) manifest.cloud_run.memory = memory;
+                    if (minInstances) manifest.cloud_run.min_instances = parseInt(minInstances);
+                    if (maxInstances) manifest.cloud_run.max_instances = parseInt(maxInstances);
+                    if (maxConcurrency) manifest.cloud_run.max_concurrency = parseInt(maxConcurrency);
+                    if (timeoutSeconds) manifest.cloud_run.timeout_seconds = parseInt(timeoutSeconds);
+                }
+
+                // Credentials
+                manifest.provider.credentials = {
+                    service_account_key_path: document.getElementById('serviceAccountKeyPath').value
+                };
+
+                // Monitoring
+                if (document.getElementById('gcpCloudLogging').checked) {
+                    manifest.monitoring = {
+                        cloudwatch_logs: {
+                            enabled: true
+                        }
+                    };
+                    const gcpLogRetention = document.getElementById('gcpLogRetention').value;
+                    if (gcpLogRetention) {
+                        manifest.monitoring.cloudwatch_logs.retention_days = parseInt(gcpLogRetention);
+                    }
+                    if (document.getElementById('gcpStreamLogs').checked) {
+                        manifest.monitoring.cloudwatch_logs.stream_logs = true;
+                    }
+                }
+            }
+
+            // Parse and add environment variables
+            const envVarsText = document.getElementById('envVars').value;
+            if (envVarsText) {
+                try {
+                    manifest.environment_variables = JSON.parse(envVarsText);
+                } catch (e) {
+                    showMessage('Error: Invalid JSON format for environment variables', 'error');
+                    return;
+                }
+            }
+
+            // Parse and add tags
+            const tagsText = document.getElementById('tags').value;
+            if (tagsText) {
+                try {
+                    manifest.tags = JSON.parse(tagsText);
+                } catch (e) {
+                    showMessage('Error: Invalid JSON format for tags', 'error');
+                    return;
+                }
+            }
+
+            // Send to server
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(manifest)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showMessage(`Success! Manifest saved to: ${data.path}`, 'success');
+                } else {
+                    const error = await response.text();
+                    showMessage(`Error: ${error}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        });
+
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('messageArea');
+            messageArea.innerHTML = `<div class="message ${type}">${message}</div>`;
+
+            // Scroll to message
+            messageArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    </script>
+</body>
+</html>
