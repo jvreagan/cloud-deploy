@@ -1,5 +1,6 @@
 # Binaries (at root level only)
 /cloud-deploy
+/manifest-ui
 *.exe
 *.exe~
 *.dll
@@ -7,6 +8,11 @@
 *.dylib
 *.test
 *.out
+
+# GoReleaser artifacts
+dist/
+*.tar.gz
+*.zip
 
 # Go
 go.sum

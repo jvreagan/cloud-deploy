@@ -397,6 +397,7 @@ The `examples/` directory contains several deployment manifests:
 ### 📚 Comprehensive Guides
 
 - **[Features Overview](docs/FEATURES.md)** - Complete feature list, provider comparison, and what cloud-deploy offers
+- **[Homebrew Installation](HOMEBREW.md)** - Complete guide for setting up Homebrew distribution
 - **[AWS Deployment Guide](docs/AWS.md)** - Everything you need to deploy to AWS Elastic Beanstalk
   - Prerequisites and authentication
   - Required and optional fields

@@ -10,7 +10,12 @@ import (
 	"github.com/jvreagan/cloud-deploy/pkg/provider"
 )
 
-const version = "0.1.0"
+// Version information (set via ldflags during build)
+var (
+	version = "0.1.0"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	// Parse command line flags
@@ -23,6 +28,8 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("cloud-deploy version %s\n", version)
+		fmt.Printf("  commit: %s\n", commit)
+		fmt.Printf("  built: %s\n", date)
 		os.Exit(0)
 	}
 
