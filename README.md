@@ -4,6 +4,15 @@
 
 `cloud-deploy` is a command-line tool that simplifies deploying containerized applications to multiple cloud providers using a single declarative manifest file. Think of it as "docker-compose for cloud deployments."
 
+## Quick Install
+
+```bash
+brew tap jvreagan/tap
+brew install cloud-deploy
+```
+
+> **Note:** Homebrew works on macOS and Linux. See [Installation](#installation) section for other options.
+
 ## Features
 
 - 📝 **Declarative Configuration** - Define your entire deployment in a single YAML manifest
@@ -28,20 +37,31 @@
 
 ### Homebrew (macOS and Linux) - Recommended
 
+The easiest way to install `cloud-deploy` is via Homebrew. This works on both macOS and Linux.
+
 ```bash
-# Add the tap
+# Step 1: Add the cloud-deploy tap
 brew tap jvreagan/tap
 
-# Install cloud-deploy (includes both CLI and Web UI)
+# Step 2: Install cloud-deploy (includes both CLI and Web UI)
 brew install cloud-deploy
 
-# Verify installation
+# Step 3: Verify installation
 cloud-deploy -version
+manifest-ui -h
 ```
 
-Both the CLI tool and Web UI are installed:
-- `cloud-deploy` - Main CLI tool
-- `manifest-ui` - Web UI server
+**What gets installed:**
+- `cloud-deploy` - Main CLI tool for deploying to cloud providers
+- `manifest-ui` - Web UI server for generating manifest files
+- Web assets - Frontend files for the manifest generator UI
+
+**Installation locations:**
+- Apple Silicon Macs: `/opt/homebrew/bin/`
+- Intel Macs: `/usr/local/bin/`
+- Linux: `/home/linuxbrew/.linuxbrew/bin/`
+
+All binaries are pre-built and ready to use - no compilation needed!
 
 ### From Source
 
@@ -75,11 +95,17 @@ See the [Web UI section](#web-ui---manifest-generator) below for more details.
 
 ## Quick Start
 
+**First, install cloud-deploy:** (if you haven't already)
+```bash
+brew tap jvreagan/tap
+brew install cloud-deploy
+```
+
 ### Option 1: Using the Web UI (Recommended for beginners)
 
 ```bash
 # Start the manifest generator
-go run cmd/manifest-ui/main.go
+manifest-ui
 ```
 
 Open http://localhost:5001 in your browser, fill out the form, and generate your manifest!
