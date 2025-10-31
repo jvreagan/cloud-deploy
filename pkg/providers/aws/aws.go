@@ -607,3 +607,117 @@ func zipDirectory(sourceDir string, zipFile *os.File) error {
 		return err
 	})
 }
+
+// Rollback rolls back the AWS Elastic Beanstalk environment to the previous application version.
+func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	fmt.Println("Starting AWS Elastic Beanstalk rollback...")
+
+	// Step 1: Get current environment to find the deployed version
+	envResult, err := p.ebClient.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{
+		ApplicationName:  aws.String(m.Application.Name),
+		EnvironmentNames: []string{m.Environment.Name},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe environment: %w", err)
+	}
+
+	if len(envResult.Environments) == 0 {
+		return nil, fmt.Errorf("environment not found: %s", m.Environment.Name)
+	}
+
+	currentVersion := envResult.Environments[0].VersionLabel
+	if currentVersion == nil {
+		return nil, fmt.Errorf("current environment has no version label")
+	}
+
+	fmt.Printf("Current version: %s\n", *currentVersion)
+
+	// Step 2: List all application versions (sorted by creation date)
+	versionsResult, err := p.ebClient.DescribeApplicationVersions(ctx, &elasticbeanstalk.DescribeApplicationVersionsInput{
+		ApplicationName: aws.String(m.Application.Name),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list application versions: %w", err)
+	}
+
+	if len(versionsResult.ApplicationVersions) < 2 {
+		return nil, fmt.Errorf("no previous version available to rollback to (only %d version(s) exist)", len(versionsResult.ApplicationVersions))
+	}
+
+	// Step 3: Find the previous version (the one before the current)
+	var previousVersion *string
+	var currentVersionDate *time.Time
+
+	// First, find the current version's creation date
+	for _, version := range versionsResult.ApplicationVersions {
+		if version.VersionLabel != nil && *version.VersionLabel == *currentVersion {
+			currentVersionDate = version.DateCreated
+			break
+		}
+	}
+
+	if currentVersionDate == nil {
+		return nil, fmt.Errorf("could not find current version in version list")
+	}
+
+	// Find the most recent version that was created before the current version
+	for _, version := range versionsResult.ApplicationVersions {
+		if version.VersionLabel == nil || version.DateCreated == nil {
+			continue
+		}
+
+		// Skip the current version
+		if *version.VersionLabel == *currentVersion {
+			continue
+		}
+
+		// Find versions created before the current one
+		if version.DateCreated.Before(*currentVersionDate) {
+			// If we haven't found a previous version yet, or this one is more recent than what we found
+			if previousVersion == nil {
+				previousVersion = version.VersionLabel
+				currentVersionDate = version.DateCreated
+			} else {
+				// Find the most recent version before current
+				for _, v := range versionsResult.ApplicationVersions {
+					if v.VersionLabel != nil && *v.VersionLabel == *previousVersion {
+						if version.DateCreated.After(*v.DateCreated) {
+							previousVersion = version.VersionLabel
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if previousVersion == nil {
+		return nil, fmt.Errorf("no previous version found to rollback to")
+	}
+
+	fmt.Printf("Rolling back to previous version: %s\n", *previousVersion)
+
+	// Step 4: Update environment to use the previous version
+	_, err = p.ebClient.UpdateEnvironment(ctx, &elasticbeanstalk.UpdateEnvironmentInput{
+		EnvironmentName: aws.String(m.Environment.Name),
+		VersionLabel:    previousVersion,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to rollback environment: %w", err)
+	}
+
+	// Step 5: Wait for environment to be ready
+	fmt.Println("Waiting for rollback to complete...")
+	url, err := p.waitForEnvironment(ctx, m.Application.Name, m.Environment.Name)
+	if err != nil {
+		return nil, fmt.Errorf("rollback failed: %w", err)
+	}
+
+	return &types.DeploymentResult{
+		ApplicationName: m.Application.Name,
+		EnvironmentName: m.Environment.Name,
+		URL:             url,
+		Status:          "Ready",
+		Message:         fmt.Sprintf("Rolled back to version %s", *previousVersion),
+	}, nil
+}

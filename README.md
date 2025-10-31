@@ -24,6 +24,7 @@ brew install cloud-deploy
 - ☁️ **Multi-Cloud Support** - Deploy to AWS, GCP, Azure, and OCI with the same tool
 - 🚀 **Fully Automated** - Creates applications, environments, and deploys via cloud APIs - no console needed
 - 🔄 **Idempotent** - Run the same command repeatedly safely
+- ⏪ **One-Command Rollback** - Instantly rollback to previous version if issues occur
 - 📦 **Docker Support** - Native support for containerized applications
 - 📊 **Built-in Monitoring** - CloudWatch metrics, enhanced health reporting, and log streaming (AWS)
 
@@ -176,7 +177,13 @@ cloud-deploy -command status -manifest deploy-manifest.yaml
 cloud-deploy -command stop -manifest deploy-manifest.yaml
 ```
 
-5. Destroy completely when done:
+5. Rollback to previous version if there's an issue:
+
+```bash
+cloud-deploy -command rollback -manifest deploy-manifest.yaml
+```
+
+6. Destroy completely when done:
 
 ```bash
 cloud-deploy -command destroy -manifest deploy-manifest.yaml

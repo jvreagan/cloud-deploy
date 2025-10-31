@@ -63,6 +63,19 @@ type Provider interface {
 	// - Deployment URL
 	// - Last update time
 	Status(ctx context.Context, m *manifest.Manifest) (*types.DeploymentStatus, error)
+
+	// Rollback rolls back the deployment to the previous version.
+	// This method:
+	// 1. Lists available versions/revisions
+	// 2. Identifies the previous stable version
+	// 3. Deploys the previous version
+	//
+	// Provider-specific behavior:
+	// - AWS: Rolls back to the previous application version in Elastic Beanstalk
+	// - GCP: Rolls back to the previous Cloud Run revision
+	//
+	// Returns deployment information for the rolled-back version.
+	Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error)
 }
 
 // Factory creates a provider based on the manifest configuration.

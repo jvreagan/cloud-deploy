@@ -32,18 +32,19 @@ import (
 
 // Provider implements the provider.Provider interface for Google Cloud Run.
 type Provider struct {
-	buildClient    *cloudbuild.Client
-	runClient      *run.ServicesClient
-	storageClient  *storage.Client
-	projectsClient *cloudresourcemanager.Service
-	billingClient  *cloudbilling.APIService
-	usageClient    *serviceusage.Service
-	loggingClient  *logadmin.Client
-	projectID      string
-	region         string
-	publicAccess   bool
-	billingAccount string
-	organizationID string
+	buildClient     *cloudbuild.Client
+	runClient       *run.ServicesClient
+	revisionsClient *run.RevisionsClient
+	storageClient   *storage.Client
+	projectsClient  *cloudresourcemanager.Service
+	billingClient   *cloudbilling.APIService
+	usageClient     *serviceusage.Service
+	loggingClient   *logadmin.Client
+	projectID       string
+	region          string
+	publicAccess    bool
+	billingAccount  string
+	organizationID  string
 }
 
 // New creates a new GCP provider instance with the specified configuration.
@@ -104,11 +105,20 @@ func New(ctx context.Context, config *manifest.ProviderConfig) (*Provider, error
 		return nil, fmt.Errorf("failed to create Cloud Run client: %w", err)
 	}
 
+	// Initialize Cloud Run Revisions client
+	revisionsClient, err := run.NewRevisionsClient(ctx, credOption)
+	if err != nil {
+		buildClient.Close()
+		runClient.Close()
+		return nil, fmt.Errorf("failed to create Cloud Run Revisions client: %w", err)
+	}
+
 	// Initialize Cloud Storage client
 	storageClient, err := storage.NewClient(ctx, credOption)
 	if err != nil {
 		buildClient.Close()
 		runClient.Close()
+		revisionsClient.Close()
 		return nil, fmt.Errorf("failed to create Storage client: %w", err)
 	}
 
@@ -122,18 +132,19 @@ func New(ctx context.Context, config *manifest.ProviderConfig) (*Provider, error
 	}
 
 	provider := &Provider{
-		buildClient:    buildClient,
-		runClient:      runClient,
-		storageClient:  storageClient,
-		projectsClient: projectsClient,
-		billingClient:  billingClient,
-		usageClient:    usageClient,
-		loggingClient:  loggingClient,
-		projectID:      projectID,
-		region:         config.Region,
-		publicAccess:   publicAccess,
-		billingAccount: config.BillingAccountID,
-		organizationID: config.OrganizationID,
+		buildClient:     buildClient,
+		runClient:       runClient,
+		revisionsClient: revisionsClient,
+		storageClient:   storageClient,
+		projectsClient:  projectsClient,
+		billingClient:   billingClient,
+		usageClient:     usageClient,
+		loggingClient:   loggingClient,
+		projectID:       projectID,
+		region:          config.Region,
+		publicAccess:    publicAccess,
+		billingAccount:  config.BillingAccountID,
+		organizationID:  config.OrganizationID,
 	}
 
 	// Ensure project exists and is properly configured
@@ -956,4 +967,148 @@ func createTarGz(sourceDir string, tarFile *os.File) error {
 		_, err = io.Copy(tarWriter, file)
 		return err
 	})
+}
+
+// Rollback rolls back the GCP Cloud Run service to the previous revision.
+func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	fmt.Println("Starting Google Cloud Run rollback...")
+
+	serviceName := m.Environment.Name
+	parent := fmt.Sprintf("projects/%s/locations/%s/services/%s", p.projectID, p.region, serviceName)
+
+	// Step 1: Get the current service to find active revision
+	getReq := &runpb.GetServiceRequest{
+		Name: parent,
+	}
+
+	service, err := p.runClient.GetService(ctx, getReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service: %w", err)
+	}
+
+	// Find the current active revision
+	var currentRevision string
+	if service.Traffic != nil && len(service.Traffic) > 0 {
+		// Find the revision serving 100% traffic
+		for _, traffic := range service.Traffic {
+			if traffic.Percent == 100 {
+				currentRevision = traffic.Revision
+				break
+			}
+		}
+	}
+
+	if currentRevision == "" {
+		return nil, fmt.Errorf("could not determine current active revision")
+	}
+
+	fmt.Printf("Current revision: %s\n", currentRevision)
+
+	// Step 2: List all revisions for this service
+	listReq := &runpb.ListRevisionsRequest{
+		Parent: fmt.Sprintf("projects/%s/locations/%s", p.projectID, p.region),
+	}
+
+	revisions := p.revisionsClient.ListRevisions(ctx, listReq)
+
+	// Filter revisions for this service and sort by creation time
+	var serviceRevisions []*runpb.Revision
+	for {
+		revision, err := revisions.Next()
+		if err != nil {
+			break
+		}
+
+		// Check if this revision belongs to our service
+		if strings.Contains(revision.Name, serviceName) {
+			serviceRevisions = append(serviceRevisions, revision)
+		}
+	}
+
+	if len(serviceRevisions) < 2 {
+		return nil, fmt.Errorf("no previous revision available to rollback to (only %d revision(s) exist)", len(serviceRevisions))
+	}
+
+	// Step 3: Find the previous revision (most recent one before current)
+	var previousRevision *runpb.Revision
+	var currentRevisionTime *time.Time
+
+	// Find the current revision's creation time
+	for _, rev := range serviceRevisions {
+		if strings.Contains(rev.Name, currentRevision) {
+			if rev.CreateTime != nil {
+				t := rev.CreateTime.AsTime()
+				currentRevisionTime = &t
+			}
+			break
+		}
+	}
+
+	if currentRevisionTime == nil {
+		return nil, fmt.Errorf("could not find current revision creation time")
+	}
+
+	// Find the most recent revision created before the current one
+	for _, rev := range serviceRevisions {
+		// Skip current revision
+		if strings.Contains(rev.Name, currentRevision) {
+			continue
+		}
+
+		if rev.CreateTime != nil {
+			revTime := rev.CreateTime.AsTime()
+			if revTime.Before(*currentRevisionTime) {
+				if previousRevision == nil || revTime.After(previousRevision.CreateTime.AsTime()) {
+					previousRevision = rev
+				}
+			}
+		}
+	}
+
+	if previousRevision == nil {
+		return nil, fmt.Errorf("no previous revision found to rollback to")
+	}
+
+	// Extract just the revision name (last part of the full name)
+	prevRevisionName := previousRevision.Name[strings.LastIndex(previousRevision.Name, "/")+1:]
+	fmt.Printf("Rolling back to previous revision: %s\n", prevRevisionName)
+
+	// Step 4: Update service traffic to route to previous revision
+	service.Traffic = []*runpb.TrafficTarget{
+		{
+			Type:     runpb.TrafficTargetAllocationType_TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION,
+			Revision: prevRevisionName,
+			Percent:  100,
+		},
+	}
+
+	updateReq := &runpb.UpdateServiceRequest{
+		Service: service,
+	}
+
+	op, err := p.runClient.UpdateService(ctx, updateReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to rollback service: %w", err)
+	}
+
+	// Wait for rollback to complete
+	fmt.Println("Waiting for rollback to complete...")
+	_, err = op.Wait(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("rollback failed: %w", err)
+	}
+
+	// Get the updated service to retrieve the URL
+	service, err = p.runClient.GetService(ctx, getReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service after rollback: %w", err)
+	}
+
+	return &types.DeploymentResult{
+		ApplicationName: m.Application.Name,
+		EnvironmentName: m.Environment.Name,
+		URL:             service.Uri,
+		Status:          "Ready",
+		Message:         fmt.Sprintf("Rolled back to revision %s", prevRevisionName),
+	}, nil
 }

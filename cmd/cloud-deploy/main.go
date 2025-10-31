@@ -21,7 +21,7 @@ func main() {
 	// Parse command line flags
 	var (
 		manifestFile = flag.String("manifest", "deploy-manifest.yaml", "Path to deployment manifest file")
-		command      = flag.String("command", "deploy", "Command to execute: deploy, stop, destroy, status")
+		command      = flag.String("command", "deploy", "Command to execute: deploy, stop, destroy, status, rollback")
 		showVersion  = flag.Bool("version", false, "Show version information")
 	)
 	flag.Parse()
@@ -93,9 +93,23 @@ func main() {
 		fmt.Printf("  URL: %s\n", status.URL)
 		fmt.Printf("  Last Updated: %s\n", status.LastUpdated)
 
+	case "rollback":
+		fmt.Printf("Rolling back deployment...\n")
+		result, err := p.Rollback(ctx, m)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Rollback failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Rollback successful!\n")
+		fmt.Printf("  Application: %s\n", result.ApplicationName)
+		fmt.Printf("  Environment: %s\n", result.EnvironmentName)
+		fmt.Printf("  URL: %s\n", result.URL)
+		fmt.Printf("  Status: %s\n", result.Status)
+		fmt.Printf("  Message: %s\n", result.Message)
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
-		fmt.Fprintf(os.Stderr, "Valid commands: deploy, stop, destroy, status\n")
+		fmt.Fprintf(os.Stderr, "Valid commands: deploy, stop, destroy, status, rollback\n")
 		os.Exit(1)
 	}
 }
