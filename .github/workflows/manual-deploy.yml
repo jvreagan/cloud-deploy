@@ -1,0 +1,112 @@
+name: Manual Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Cloud provider to deploy to'
+        required: true
+        type: choice
+        options:
+          - aws
+          - gcp
+        default: 'aws'
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: 'staging'
+      manifest_path:
+        description: 'Path to manifest file (relative to repo root)'
+        required: true
+        type: string
+        default: 'deploy-manifest.yaml'
+      command:
+        description: 'Command to execute'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - status
+          - stop
+          - destroy
+        default: 'deploy'
+      confirm_production:
+        description: 'Type "CONFIRM" to deploy to production'
+        required: false
+        type: string
+
+jobs:
+  validate:
+    name: Validate deployment request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production confirmation
+        if: inputs.environment == 'production' && inputs.command == 'deploy'
+        run: |
+          if [ "${{ inputs.confirm_production }}" != "CONFIRM" ]; then
+            echo "❌ Production deployment requires typing 'CONFIRM' in the confirm_production field"
+            exit 1
+          fi
+          echo "✅ Production deployment confirmed"
+
+      - name: Check destroy confirmation
+        if: inputs.command == 'destroy'
+        run: |
+          if [ "${{ inputs.confirm_production }}" != "CONFIRM" ]; then
+            echo "❌ Destroy command requires typing 'CONFIRM' in the confirm_production field"
+            exit 1
+          fi
+          echo "✅ Destroy command confirmed"
+
+      - name: Display deployment info
+        run: |
+          echo "### Deployment Request"
+          echo "**Provider:** ${{ inputs.provider }}"
+          echo "**Environment:** ${{ inputs.environment }}"
+          echo "**Command:** ${{ inputs.command }}"
+          echo "**Manifest:** ${{ inputs.manifest_path }}"
+          echo "**Triggered by:** ${{ github.actor }}"
+
+  deploy:
+    name: Execute deployment
+    needs: validate
+    uses: ./.github/workflows/deploy.yml
+    with:
+      provider: ${{ inputs.provider }}
+      environment: ${{ inputs.environment }}
+      manifest_path: ${{ inputs.manifest_path }}
+      command: ${{ inputs.command }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+
+  notify:
+    name: Notify deployment result
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Deployment success
+        if: needs.deploy.result == 'success'
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "**Provider:** ${{ inputs.provider }}"
+          echo "**Environment:** ${{ inputs.environment }}"
+          echo "**Command:** ${{ inputs.command }}"
+          if [ -n "${{ needs.deploy.outputs.deployment_url }}" ]; then
+            echo "**URL:** ${{ needs.deploy.outputs.deployment_url }}"
+          fi
+
+      - name: Deployment failure
+        if: needs.deploy.result == 'failure'
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check the deploy job logs for details."
+          exit 1

@@ -1,0 +1,177 @@
+name: Deploy with cloud-deploy
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        description: 'Cloud provider (aws or gcp)'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (staging, production, etc.)'
+        required: true
+        type: string
+      manifest_path:
+        description: 'Path to deployment manifest file'
+        required: true
+        type: string
+      command:
+        description: 'Command to run (deploy, destroy, stop, status)'
+        required: false
+        type: string
+        default: 'deploy'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      GCP_PROJECT_ID:
+        required: false
+      GCP_CREDENTIALS:
+        required: false
+      GCP_BILLING_ACCOUNT_ID:
+        required: false
+    outputs:
+      deployment_url:
+        description: 'URL of the deployed application'
+        value: ${{ jobs.deploy.outputs.url }}
+      deployment_status:
+        description: 'Status of the deployment'
+        value: ${{ jobs.deploy.outputs.status }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.provider }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}  # Requires environment approval if configured
+
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+      status: ${{ steps.deploy.outputs.status }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install cloud-deploy
+        run: |
+          go install github.com/jvreagan/cloud-deploy/cmd/cloud-deploy@latest
+          cloud-deploy -version
+
+      - name: Validate manifest
+        run: |
+          if [ ! -f "${{ inputs.manifest_path }}" ]; then
+            echo "❌ Manifest file not found: ${{ inputs.manifest_path }}"
+            exit 1
+          fi
+          echo "✅ Manifest file found: ${{ inputs.manifest_path }}"
+          cat "${{ inputs.manifest_path }}"
+
+      - name: Configure AWS credentials
+        if: inputs.provider == 'aws'
+        run: |
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "❌ AWS credentials not configured in GitHub secrets"
+            exit 1
+          fi
+          echo "✅ AWS credentials configured"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+
+      - name: Configure GCP credentials
+        if: inputs.provider == 'gcp'
+        run: |
+          if [ -z "${{ secrets.GCP_CREDENTIALS }}" ]; then
+            echo "❌ GCP credentials not configured in GitHub secrets"
+            exit 1
+          fi
+          echo "✅ GCP credentials configured"
+
+      - name: Deploy with cloud-deploy
+        id: deploy
+        run: |
+          echo "🚀 Starting deployment to ${{ inputs.provider }}..."
+          echo ""
+
+          # Run cloud-deploy command
+          cloud-deploy \
+            -manifest "${{ inputs.manifest_path }}" \
+            -command "${{ inputs.command }}" \
+            2>&1 | tee deployment.log
+
+          # Extract URL from output (if deployment succeeded)
+          if [ "${{ inputs.command }}" = "deploy" ]; then
+            URL=$(grep -oP '(?<=URL: ).*' deployment.log || echo "")
+            if [ -n "$URL" ]; then
+              echo "url=$URL" >> $GITHUB_OUTPUT
+              echo "✅ Deployment URL: $URL"
+            fi
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs-${{ inputs.provider }}-${{ inputs.environment }}
+          path: deployment.log
+          retention-days: 30
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request' && inputs.command == 'deploy'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### 🚀 Deployment to ${{ inputs.provider }} (${{ inputs.environment }})
+
+            **Status:** ✅ Success
+            **Command:** \`${{ inputs.command }}\`
+            **Manifest:** \`${{ inputs.manifest_path }}\`
+            ${process.env.DEPLOYMENT_URL ? `**URL:** ${process.env.DEPLOYMENT_URL}` : ''}
+
+            <details><summary>Show deployment logs</summary>
+
+            \`\`\`
+            See deployment-logs artifact for full output
+            \`\`\`
+
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Provider:** ${{ inputs.provider }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Command:** ${{ inputs.command }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Manifest:** ${{ inputs.manifest_path }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.deploy.outputs.url }}" != "" ]; then
+            echo "**URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.deploy.outputs.status }}" >> $GITHUB_STEP_SUMMARY

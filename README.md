@@ -455,6 +455,56 @@ go test -tags=integration -v ./pkg/providers/gcp
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.
 
+## GitHub Actions Integration
+
+Integrate cloud-deploy into your CI/CD pipeline with ready-to-use GitHub Actions workflows.
+
+### Deployment Methods
+
+| Method | Trigger | Best For |
+|--------|---------|----------|
+| **Manual Dispatch** | GitHub UI button | Production deployments, on-demand operations |
+| **PR Labels** | Add `deploy:aws:staging` label | Review apps, testing changes |
+| **Commit Message** | Include `[deploy]` in commit | Automatic staging/production |
+
+### Quick Setup
+
+**1. Copy workflows to your repository:**
+```bash
+# In your application repository
+mkdir -p .github/workflows
+cp cloud-deploy/.github/workflows/deploy.yml .github/workflows/
+cp cloud-deploy/.github/workflows/manual-deploy.yml .github/workflows/
+```
+
+**2. Add cloud credentials as GitHub secrets:**
+```
+Settings → Secrets and variables → Actions
+- AWS_ACCESS_KEY_ID
+- AWS_SECRET_ACCESS_KEY
+- GCP_PROJECT_ID
+- GCP_CREDENTIALS
+```
+
+**3. Deploy from GitHub UI:**
+- Go to **Actions** tab
+- Select **Manual Deployment**
+- Choose provider, environment, and click **Run workflow**
+
+### Features
+
+✅ Manual deployments with UI controls
+✅ Automatic PR-based deployments via labels
+✅ Environment-based approvals for production
+✅ Deployment logs as artifacts
+✅ PR comments with deployment status
+✅ Rollback capabilities
+✅ Multi-cloud support (AWS + GCP)
+
+**Complete documentation:** [docs/GITHUB_ACTIONS.md](docs/GITHUB_ACTIONS.md)
+
+**Example workflows:** [examples/workflows/](examples/workflows/)
+
 ## Examples
 
 The `examples/` directory contains several deployment manifests:

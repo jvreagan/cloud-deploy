@@ -1,0 +1,207 @@
+# Example: Complete CI/CD pipeline for your application
+# This workflow shows how to integrate cloud-deploy into your app's deployment process
+#
+# Place this file in: .github/workflows/app-ci-cd.yml (in your application repository)
+
+name: App CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  # Customize these for your application
+  APP_NAME: my-app
+  DOCKER_IMAGE: my-app:${{ github.sha }}
+
+jobs:
+  # Step 1: Build and test your application
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up build environment
+        uses: actions/setup-node@v4  # or setup-go, setup-python, etc.
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE }} .
+          docker save ${{ env.DOCKER_IMAGE }} > app-image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: app-image.tar
+          retention-days: 1
+
+  # Step 2: Deploy to staging (automatic on push to develop)
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: staging  # Requires GitHub environment configuration
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image
+        run: docker load < app-image.tar
+
+      - name: Push to container registry
+        run: |
+          # Push to ECR, GCR, or your registry
+          echo "Pushing to container registry..."
+          # docker push ...
+
+      - name: Install cloud-deploy
+        run: |
+          # Install cloud-deploy from GitHub releases or build from source
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      - name: Deploy to AWS staging
+        run: |
+          cloud-deploy \
+            -manifest manifests/staging-aws.yaml \
+            -command deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging..."
+          # curl https://staging.example.com/health
+          # npm run test:e2e
+
+      - name: Notify team
+        if: always()
+        run: |
+          echo "Staging deployment completed"
+          # Send Slack notification, create GitHub issue, etc.
+
+  # Step 3: Deploy to production (manual approval required)
+  deploy-production:
+    name: Deploy to Production
+    needs: build-and-test
+    # Only trigger on:
+    # 1. Push to main branch AND
+    # 2. Commit message contains [deploy]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://myapp.example.com  # Your production URL
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image
+        run: docker load < app-image.tar
+
+      - name: Push to container registry
+        run: |
+          echo "Pushing to production container registry..."
+          # docker push ...
+
+      - name: Install cloud-deploy
+        run: |
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      - name: Create backup
+        run: |
+          echo "Creating production backup..."
+          # Backup current deployment
+          cloud-deploy \
+            -manifest manifests/production-gcp.yaml \
+            -command status \
+            > pre-deployment-status.txt
+
+      - name: Deploy to GCP production
+        run: |
+          cloud-deploy \
+            -manifest manifests/production-gcp.yaml \
+            -command deploy
+        env:
+          GCP_PROJECT_ID: ${{ secrets.PROD_GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.PROD_GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.PROD_GCP_BILLING_ACCOUNT_ID }}
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying production deployment..."
+          sleep 30  # Wait for deployment to stabilize
+          # Run health checks
+          # curl https://myapp.example.com/health
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Rolling back..."
+          # Implement rollback logic here
+          # Could deploy previous version or run 'stop' command
+
+      - name: Create release
+        if: success()
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Production Release ${{ github.run_number }}
+          body: |
+            Production deployment from commit ${{ github.sha }}
+
+            **Deployed to:** GCP Cloud Run
+            **Triggered by:** ${{ github.actor }}
+            **Commit:** ${{ github.event.head_commit.message }}
+
+      - name: Notify team
+        if: always()
+        run: |
+          echo "Production deployment completed"
+          # Send alerts to Slack, PagerDuty, etc.
