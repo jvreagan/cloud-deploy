@@ -6,6 +6,7 @@ This guide shows you how to integrate cloud-deploy into your GitHub Actions CI/C
 
 - [Overview](#overview)
 - [How It Works: Installing cloud-deploy in Your Workflows](#how-it-works-installing-cloud-deploy-in-your-workflows)
+  - [Quick Start: Using cloud-deploy in a New Repository](#quick-start-using-cloud-deploy-in-a-new-repository)
 - [Deployment Workflows](#deployment-workflows)
 - [Setup Instructions](#setup-instructions)
 - [Usage Examples](#usage-examples)
@@ -200,6 +201,178 @@ Your application repositories:
 - ✅ Install and use cloud-deploy to deploy YOUR applications
 - ✅ Contain deployment manifests for YOUR applications
 - ✅ Run cloud-deploy commands in workflows
+
+### Quick Start: Using cloud-deploy in a New Repository
+
+Want to add cloud-deploy to a new project? Here's a complete walkthrough from scratch:
+
+#### Step 1: Create Your Application Repository
+
+```bash
+# Create a new repository
+mkdir my-new-app
+cd my-new-app
+git init
+
+# Add your application code (example: Node.js app)
+cat > index.js << 'EOF'
+const http = require('http');
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {'Content-Type': 'text/plain'});
+  res.end('Hello from my-new-app!');
+});
+server.listen(8080, () => console.log('Server running on port 8080'));
+EOF
+
+# Create a Dockerfile for your application
+cat > Dockerfile << 'EOF'
+FROM node:18
+WORKDIR /app
+COPY index.js .
+EXPOSE 8080
+CMD ["node", "index.js"]
+EOF
+```
+
+#### Step 2: Create a Deployment Manifest
+
+```bash
+# Create manifests directory
+mkdir manifests
+
+# Create deployment manifest for AWS
+cat > manifests/production-aws.yaml << 'EOF'
+version: "1.0"
+
+provider:
+  name: aws
+  region: us-east-1
+
+application:
+  name: my-new-app
+  description: "My new application"
+
+environment:
+  name: my-new-app-prod
+  cname: my-new-app  # Creates: my-new-app.us-east-1.elasticbeanstalk.com
+
+deployment:
+  platform: docker
+  source:
+    type: local
+    path: .
+
+instance:
+  type: t3.micro
+  environment_type: SingleInstance
+
+health_check:
+  type: basic
+  path: /
+EOF
+```
+
+#### Step 3: Create GitHub Actions Workflow
+
+```bash
+# Create workflows directory
+mkdir -p .github/workflows
+
+# Create deployment workflow
+cat > .github/workflows/deploy.yml << 'EOF'
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout your code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Install cloud-deploy
+      - name: Install cloud-deploy
+        run: |
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      # 3. Deploy using cloud-deploy
+      - name: Deploy to AWS
+        run: |
+          cloud-deploy \
+            -manifest manifests/production-aws.yaml \
+            -command deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+EOF
+```
+
+#### Step 4: Push to GitHub
+
+```bash
+# Add all files
+git add .
+
+# Commit
+git commit -m "Initial commit with cloud-deploy integration"
+
+# Create repository on GitHub, then:
+git remote add origin https://github.com/YOUR_USERNAME/my-new-app.git
+git branch -M main
+git push -u origin main
+```
+
+#### Step 5: Configure GitHub Secrets
+
+Go to your repository on GitHub:
+
+1. Click **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret**
+3. Add these secrets:
+   - Name: `AWS_ACCESS_KEY_ID`
+     Value: Your AWS access key
+   - Name: `AWS_SECRET_ACCESS_KEY`
+     Value: Your AWS secret key
+
+#### Step 6: Deploy! 🚀
+
+Your workflow will run automatically when you push to `main`. You can also trigger it manually:
+
+1. Go to the **Actions** tab in your repository
+2. Click **Deploy to AWS** workflow
+3. Click **Run workflow** → **Run workflow**
+
+Watch the logs as:
+- ✅ cloud-deploy is installed on the runner
+- ✅ Your application is packaged
+- ✅ It's deployed to AWS Elastic Beanstalk
+- ✅ You get a live URL!
+
+#### What Just Happened?
+
+When the workflow runs:
+1. GitHub starts a fresh Ubuntu runner
+2. Downloads cloud-deploy binary (5-10 seconds)
+3. Runs `cloud-deploy -command deploy` with your manifest
+4. cloud-deploy creates the application and environment on AWS
+5. Your app is live at `my-new-app.us-east-1.elasticbeanstalk.com`
+
+**That's it!** You now have automated deployments for your new application using cloud-deploy.
+
+#### Next Steps
+
+- Add a staging environment: Create `manifests/staging-aws.yaml`
+- Try GCP: Create `manifests/production-gcp.yaml` (see [GCP Guide](../docs/GCP.md))
+- Add manual approvals: Configure GitHub Environments
+- Copy other workflows: `manual-deploy.yml`, `label-deploy.yml`
 
 ## Deployment Workflows
 
