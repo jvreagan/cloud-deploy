@@ -208,7 +208,7 @@ func TestBuildOptionSettings(t *testing.T) {
 			},
 			expectedOptions: map[string]map[string]string{
 				"aws:autoscaling:launchconfiguration": {
-					"InstanceType":      "t3.small",
+					"InstanceType":       "t3.small",
 					"IamInstanceProfile": "my-instance-profile",
 				},
 				"aws:elasticbeanstalk:environment": {

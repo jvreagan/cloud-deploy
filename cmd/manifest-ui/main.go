@@ -14,35 +14,35 @@ import (
 
 // ManifestRequest represents the data sent from the frontend
 type ManifestRequest struct {
-	Version             string                 `json:"version" yaml:"version"`
-	Provider            ProviderConfig         `json:"provider" yaml:"provider"`
-	Application         ApplicationConfig      `json:"application" yaml:"application"`
-	Environment         EnvironmentConfig      `json:"environment" yaml:"environment"`
-	Deployment          DeploymentConfig       `json:"deployment" yaml:"deployment"`
-	Instance            InstanceConfig         `json:"instance,omitempty" yaml:"instance,omitempty"`
-	CloudRun            *CloudRunConfig        `json:"cloud_run,omitempty" yaml:"cloud_run,omitempty"`
-	HealthCheck         HealthCheckConfig      `json:"health_check,omitempty" yaml:"health_check,omitempty"`
-	Monitoring          MonitoringConfig       `json:"monitoring,omitempty" yaml:"monitoring,omitempty"`
-	IAM                 IAMConfig              `json:"iam,omitempty" yaml:"iam,omitempty"`
-	EnvironmentVars     map[string]string      `json:"environment_variables,omitempty" yaml:"environment_variables,omitempty"`
-	Tags                map[string]string      `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Version         string            `json:"version" yaml:"version"`
+	Provider        ProviderConfig    `json:"provider" yaml:"provider"`
+	Application     ApplicationConfig `json:"application" yaml:"application"`
+	Environment     EnvironmentConfig `json:"environment" yaml:"environment"`
+	Deployment      DeploymentConfig  `json:"deployment" yaml:"deployment"`
+	Instance        InstanceConfig    `json:"instance,omitempty" yaml:"instance,omitempty"`
+	CloudRun        *CloudRunConfig   `json:"cloud_run,omitempty" yaml:"cloud_run,omitempty"`
+	HealthCheck     HealthCheckConfig `json:"health_check,omitempty" yaml:"health_check,omitempty"`
+	Monitoring      MonitoringConfig  `json:"monitoring,omitempty" yaml:"monitoring,omitempty"`
+	IAM             IAMConfig         `json:"iam,omitempty" yaml:"iam,omitempty"`
+	EnvironmentVars map[string]string `json:"environment_variables,omitempty" yaml:"environment_variables,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
 type ProviderConfig struct {
-	Name              string            `json:"name" yaml:"name"`
-	Region            string            `json:"region" yaml:"region"`
-	ProjectID         string            `json:"project_id,omitempty" yaml:"project_id,omitempty"`
-	BillingAccountID  string            `json:"billing_account_id,omitempty" yaml:"billing_account_id,omitempty"`
-	OrganizationID    string            `json:"organization_id,omitempty" yaml:"organization_id,omitempty"`
-	PublicAccess      *bool             `json:"public_access,omitempty" yaml:"public_access,omitempty"`
-	Credentials       CredentialsConfig `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Name             string            `json:"name" yaml:"name"`
+	Region           string            `json:"region" yaml:"region"`
+	ProjectID        string            `json:"project_id,omitempty" yaml:"project_id,omitempty"`
+	BillingAccountID string            `json:"billing_account_id,omitempty" yaml:"billing_account_id,omitempty"`
+	OrganizationID   string            `json:"organization_id,omitempty" yaml:"organization_id,omitempty"`
+	PublicAccess     *bool             `json:"public_access,omitempty" yaml:"public_access,omitempty"`
+	Credentials      CredentialsConfig `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 }
 
 type CredentialsConfig struct {
-	AccessKeyID              string `json:"access_key_id,omitempty" yaml:"access_key_id,omitempty"`
-	SecretAccessKey          string `json:"secret_access_key,omitempty" yaml:"secret_access_key,omitempty"`
-	ServiceAccountKeyPath    string `json:"service_account_key_path,omitempty" yaml:"service_account_key_path,omitempty"`
-	ServiceAccountKeyJSON    string `json:"service_account_key_json,omitempty" yaml:"service_account_key_json,omitempty"`
+	AccessKeyID           string `json:"access_key_id,omitempty" yaml:"access_key_id,omitempty"`
+	SecretAccessKey       string `json:"secret_access_key,omitempty" yaml:"secret_access_key,omitempty"`
+	ServiceAccountKeyPath string `json:"service_account_key_path,omitempty" yaml:"service_account_key_path,omitempty"`
+	ServiceAccountKeyJSON string `json:"service_account_key_json,omitempty" yaml:"service_account_key_json,omitempty"`
 }
 
 type ApplicationConfig struct {
@@ -86,15 +86,15 @@ type HealthCheckConfig struct {
 }
 
 type MonitoringConfig struct {
-	EnhancedHealth    bool                   `json:"enhanced_health,omitempty" yaml:"enhanced_health,omitempty"`
-	CloudWatchMetrics bool                   `json:"cloudwatch_metrics,omitempty" yaml:"cloudwatch_metrics,omitempty"`
-	CloudWatchLogs    *CloudWatchLogsConfig  `json:"cloudwatch_logs,omitempty" yaml:"cloudwatch_logs,omitempty"`
+	EnhancedHealth    bool                  `json:"enhanced_health,omitempty" yaml:"enhanced_health,omitempty"`
+	CloudWatchMetrics bool                  `json:"cloudwatch_metrics,omitempty" yaml:"cloudwatch_metrics,omitempty"`
+	CloudWatchLogs    *CloudWatchLogsConfig `json:"cloudwatch_logs,omitempty" yaml:"cloudwatch_logs,omitempty"`
 }
 
 type CloudWatchLogsConfig struct {
-	Enabled       bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	RetentionDays int    `json:"retention_days,omitempty" yaml:"retention_days,omitempty"`
-	StreamLogs    bool   `json:"stream_logs,omitempty" yaml:"stream_logs,omitempty"`
+	Enabled       bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	RetentionDays int  `json:"retention_days,omitempty" yaml:"retention_days,omitempty"`
+	StreamLogs    bool `json:"stream_logs,omitempty" yaml:"stream_logs,omitempty"`
 }
 
 type IAMConfig struct {

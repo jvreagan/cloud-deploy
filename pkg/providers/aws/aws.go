@@ -373,12 +373,12 @@ func (p *Provider) createEnvironment(ctx context.Context, m *manifest.Manifest, 
 	optionSettings := p.buildOptionSettings(m)
 
 	_, err := p.ebClient.CreateEnvironment(ctx, &elasticbeanstalk.CreateEnvironmentInput{
-		ApplicationName: aws.String(m.Application.Name),
-		EnvironmentName: aws.String(m.Environment.Name),
-		VersionLabel:    aws.String(versionLabel),
+		ApplicationName:   aws.String(m.Application.Name),
+		EnvironmentName:   aws.String(m.Environment.Name),
+		VersionLabel:      aws.String(versionLabel),
 		SolutionStackName: aws.String(m.Deployment.SolutionStack),
-		CNAMEPrefix:     aws.String(m.Environment.CName),
-		OptionSettings:  optionSettings,
+		CNAMEPrefix:       aws.String(m.Environment.CName),
+		OptionSettings:    optionSettings,
 	})
 	return err
 }

@@ -393,7 +393,7 @@ func (p *Provider) buildImage(ctx context.Context, bucketName, objectName, image
 				Args: []string{"build", "-t", imageTag, "."},
 			},
 		},
-		Images: []string{imageTag},
+		Images:  []string{imageTag},
 		Timeout: durationpb.New(20 * time.Minute),
 	}
 

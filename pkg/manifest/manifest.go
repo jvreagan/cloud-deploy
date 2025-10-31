@@ -25,25 +25,25 @@ import (
 type Manifest struct {
 	// Version of the manifest schema (currently "1.0")
 	Version string `yaml:"version"`
-	
+
 	// Provider configuration (cloud provider, region, credentials)
 	Provider ProviderConfig `yaml:"provider"`
-	
+
 	// Application configuration (name, description)
 	Application ApplicationConfig `yaml:"application"`
-	
+
 	// Environment configuration (name, subdomain)
 	Environment EnvironmentConfig `yaml:"environment"`
-	
+
 	// Deployment configuration (platform, source code location)
 	Deployment DeploymentConfig `yaml:"deployment"`
-	
+
 	// Instance configuration (type, scaling)
 	Instance InstanceConfig `yaml:"instance"`
 
 	// Cloud Run configuration (GCP-specific) - optional
 	CloudRun *CloudRunConfig `yaml:"cloud_run,omitempty"`
-	
+
 	// Health check configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 
@@ -52,10 +52,10 @@ type Manifest struct {
 
 	// IAM configuration (roles, profiles) - optional
 	IAM IAMConfig `yaml:"iam,omitempty"`
-	
+
 	// Environment variables to set in the deployment - optional
 	EnvironmentVariables map[string]string `yaml:"environment_variables,omitempty"`
-	
+
 	// Tags to apply to cloud resources - optional
 	Tags map[string]string `yaml:"tags,omitempty"`
 }
@@ -108,7 +108,7 @@ type CredentialsConfig struct {
 type ApplicationConfig struct {
 	// Name of the application (must be unique within the cloud account)
 	Name string `yaml:"name"`
-	
+
 	// Description of the application - optional
 	Description string `yaml:"description,omitempty"`
 }
@@ -118,7 +118,7 @@ type ApplicationConfig struct {
 type EnvironmentConfig struct {
 	// Name of the environment (must be unique within the application)
 	Name string `yaml:"name"`
-	
+
 	// CName/subdomain for the environment (creates: <cname>.<region>.<provider>.com)
 	CName string `yaml:"cname"`
 }
@@ -139,7 +139,7 @@ type DeploymentConfig struct {
 type SourceConfig struct {
 	// Type of source (local, s3, git)
 	Type string `yaml:"type"`
-	
+
 	// Path to source code (file path, S3 URL, or git repository)
 	Path string `yaml:"path"`
 }
@@ -214,7 +214,7 @@ type CloudWatchLogsConfig struct {
 type IAMConfig struct {
 	// Instance profile for EC2/compute instances - optional
 	InstanceProfile string `yaml:"instance_profile,omitempty"`
-	
+
 	// Service role for the cloud service - optional
 	ServiceRole string `yaml:"service_role,omitempty"`
 }

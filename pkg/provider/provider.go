@@ -26,7 +26,7 @@ import (
 type Provider interface {
 	// Name returns the provider name (e.g., "aws", "gcp", "azure", "oci")
 	Name() string
-	
+
 	// Deploy deploys an application according to the manifest.
 	// This method:
 	// 1. Creates the application if it doesn't exist
@@ -36,7 +36,7 @@ type Provider interface {
 	//
 	// Returns deployment information including the application URL.
 	Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error)
-	
+
 	// Destroy removes the deployed application and all associated resources.
 	// This includes:
 	// - Terminating the environment

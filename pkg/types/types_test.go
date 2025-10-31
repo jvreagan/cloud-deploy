@@ -20,7 +20,7 @@ func TestDeploymentResult(t *testing.T) {
 			},
 		},
 		{
-			name: "empty deployment result",
+			name:   "empty deployment result",
 			result: DeploymentResult{},
 		},
 	}
@@ -64,7 +64,7 @@ func TestDeploymentStatus(t *testing.T) {
 			},
 		},
 		{
-			name: "empty deployment status",
+			name:   "empty deployment status",
 			status: DeploymentStatus{},
 		},
 		{
