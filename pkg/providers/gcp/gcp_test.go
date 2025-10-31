@@ -628,15 +628,15 @@ func TestCreateTarGzMultipleFiles(t *testing.T) {
 
 	// Create multiple files at different levels
 	files := map[string]string{
-		"root1.txt":              "root content 1",
-		"root2.txt":              "root content 2",
-		"dir1/file1.txt":         "dir1 content",
-		"dir1/file2.txt":         "dir1 content 2",
-		"dir2/subdir/file3.txt":  "nested content",
-		"dir2/subdir/file4.go":   "package main",
-		"dir3/a.txt":             "a",
-		"dir3/b.txt":             "b",
-		"dir3/nested/c.txt":      "c",
+		"root1.txt":             "root content 1",
+		"root2.txt":             "root content 2",
+		"dir1/file1.txt":        "dir1 content",
+		"dir1/file2.txt":        "dir1 content 2",
+		"dir2/subdir/file3.txt": "nested content",
+		"dir2/subdir/file4.go":  "package main",
+		"dir3/a.txt":            "a",
+		"dir3/b.txt":            "b",
+		"dir3/nested/c.txt":     "c",
 	}
 
 	for path, content := range files {
