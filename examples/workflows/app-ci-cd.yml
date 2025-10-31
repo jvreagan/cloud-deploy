@@ -1,7 +1,14 @@
 # Example: Complete CI/CD pipeline for your application
 # This workflow shows how to integrate cloud-deploy into your app's deployment process
 #
-# Place this file in: .github/workflows/app-ci-cd.yml (in your application repository)
+# IMPORTANT: Place this file in YOUR APPLICATION REPOSITORY, not the cloud-deploy repo!
+# Location: .github/workflows/app-ci-cd.yml (in your application repository)
+#
+# This workflow demonstrates:
+# 1. Building and testing your application
+# 2. Installing cloud-deploy from GitHub releases
+# 3. Deploying your application to AWS/GCP using cloud-deploy
+# 4. Running smoke tests after deployment
 
 name: App CI/CD
 
@@ -86,9 +93,14 @@ jobs:
 
       - name: Install cloud-deploy
         run: |
-          # Install cloud-deploy from GitHub releases or build from source
+          # STEP 1: Download cloud-deploy from GitHub releases (recommended method)
+          # This downloads the pre-built binary - fast and reliable
           curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+
+          # STEP 2: Move to system path so we can run 'cloud-deploy' command
           sudo mv cloud-deploy /usr/local/bin/
+
+          # STEP 3: Verify installation
           cloud-deploy -version
 
       - name: Deploy to AWS staging
@@ -148,6 +160,7 @@ jobs:
 
       - name: Install cloud-deploy
         run: |
+          # Download cloud-deploy from releases (pre-built binary)
           curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
           sudo mv cloud-deploy /usr/local/bin/
           cloud-deploy -version

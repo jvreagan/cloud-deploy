@@ -5,6 +5,7 @@ This guide shows you how to integrate cloud-deploy into your GitHub Actions CI/C
 ## Table of Contents
 
 - [Overview](#overview)
+- [How It Works: Installing cloud-deploy in Your Workflows](#how-it-works-installing-cloud-deploy-in-your-workflows)
 - [Deployment Workflows](#deployment-workflows)
 - [Setup Instructions](#setup-instructions)
 - [Usage Examples](#usage-examples)
@@ -20,6 +21,185 @@ cloud-deploy provides three flexible ways to trigger deployments in GitHub Actio
 | **Manual Dispatch** | GitHub UI button | On-demand deployments | Optional (via environments) |
 | **PR Labels** | Adding labels to PRs | Review app deployments | Optional |
 | **Commit Message** | `[deploy]` in commit | Automatic after merge | Optional (via environments) |
+
+## How It Works: Installing cloud-deploy in Your Workflows
+
+> **Important:** This guide is for using cloud-deploy in YOUR APPLICATION repositories, not the cloud-deploy repository itself.
+
+### The Big Picture
+
+When you want to deploy your application using cloud-deploy via GitHub Actions:
+
+1. **Your application repository** contains your app code and deployment workflows
+2. **GitHub Actions runner** starts fresh for each workflow run (no pre-installed tools)
+3. **cloud-deploy is installed** during the workflow (just like `aws-cli`, `kubectl`, or `terraform`)
+4. **cloud-deploy runs** to deploy your application to AWS/GCP
+5. **Runner is destroyed** after workflow completes
+
+### Installation Methods
+
+cloud-deploy must be installed in your workflow before you can use it. Here are three ways to install it:
+
+#### Method 1: From GitHub Releases (Recommended)
+
+This is the fastest and most reliable method. Downloads the pre-built binary from the latest release.
+
+```yaml
+- name: Install cloud-deploy
+  run: |
+    # Download from GitHub releases
+    curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+
+    # Move to system path
+    sudo mv cloud-deploy /usr/local/bin/
+
+    # Verify installation
+    cloud-deploy -version
+```
+
+**Pros:**
+- ✅ Fast (pre-built binary)
+- ✅ Reliable (pinned release version)
+- ✅ No compilation needed
+
+#### Method 2: Using `go install`
+
+Install directly from source using Go. Good for getting the latest code.
+
+```yaml
+- name: Set up Go
+  uses: actions/setup-go@v5
+  with:
+    go-version: '1.23'
+
+- name: Install cloud-deploy
+  run: go install github.com/jvreagan/cloud-deploy/cmd/cloud-deploy@latest
+```
+
+**Pros:**
+- ✅ Always gets latest code
+- ✅ Simple one-liner
+
+**Cons:**
+- ⚠️ Slower (compiles from source)
+- ⚠️ May get unreleased changes
+
+#### Method 3: Build from Source
+
+Clone and build the repository. Useful for development or custom builds.
+
+```yaml
+- name: Set up Go
+  uses: actions/setup-go@v5
+  with:
+    go-version: '1.23'
+
+- name: Build cloud-deploy from source
+  run: |
+    git clone https://github.com/jvreagan/cloud-deploy.git
+    cd cloud-deploy
+    go build -o /usr/local/bin/cloud-deploy ./cmd/cloud-deploy
+    cloud-deploy -version
+```
+
+**Pros:**
+- ✅ Full control over build process
+- ✅ Can build specific commits/branches
+
+**Cons:**
+- ⚠️ Slowest method
+- ⚠️ Requires Go setup
+
+### Complete Workflow Example
+
+Here's what a complete deployment workflow looks like in your application repository:
+
+```yaml
+# .github/workflows/deploy.yml (in YOUR APPLICATION repo)
+name: Deploy Application
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout YOUR application code
+      - uses: actions/checkout@v4
+
+      # 2. Build YOUR application
+      - name: Build application
+        run: |
+          docker build -t my-app:${{ github.sha }} .
+
+      # 3. Install cloud-deploy
+      - name: Install cloud-deploy
+        run: |
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      # 4. Deploy using cloud-deploy
+      - name: Deploy to AWS
+        run: |
+          cloud-deploy \
+            -manifest manifests/production-aws.yaml \
+            -command deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+```
+
+### Key Concepts
+
+**Q: Is cloud-deploy pre-installed on GitHub runners?**
+A: No. You must install it in your workflow, just like any other CLI tool.
+
+**Q: Do I need to install it every time?**
+A: Yes. GitHub Actions runners are ephemeral (fresh for each run). The installation is fast (5-10 seconds).
+
+**Q: Where do I put the workflow file?**
+A: In YOUR APPLICATION repository, in `.github/workflows/deploy.yml`
+
+**Q: Where do I put the manifest file?**
+A: In YOUR APPLICATION repository, typically in `manifests/` directory or root
+
+**Q: Can I cache the cloud-deploy binary?**
+A: Yes, but it's usually not worth it. The download is fast and caching adds complexity.
+
+### Repository Structure
+
+Your application repository should look like this:
+
+```
+your-app-repo/
+├── .github/
+│   └── workflows/
+│       ├── deploy.yml          # Workflow that installs cloud-deploy
+│       └── manual-deploy.yml   # Optional: manual deployment workflow
+├── manifests/
+│   ├── staging-aws.yaml        # Deployment manifest for staging
+│   └── production-gcp.yaml     # Deployment manifest for production
+├── src/                        # Your application code
+├── Dockerfile                  # Your application's Dockerfile
+└── README.md
+```
+
+### What About the cloud-deploy Repo?
+
+The `cloud-deploy` repository:
+- ✅ Contains the cloud-deploy tool source code
+- ✅ Has its own CI/CD for testing and releasing cloud-deploy itself
+- ❌ Does NOT deploy using cloud-deploy (that would be circular!)
+- ❌ Is NOT where you put your application's deployment workflows
+
+Your application repositories:
+- ✅ Install and use cloud-deploy to deploy YOUR applications
+- ✅ Contain deployment manifests for YOUR applications
+- ✅ Run cloud-deploy commands in workflows
 
 ## Deployment Workflows
 

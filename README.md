@@ -457,7 +457,33 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.
 
 ## GitHub Actions Integration
 
+> **Use cloud-deploy in YOUR application repositories** to deploy to AWS, GCP, and other clouds automatically via GitHub Actions.
+
 Integrate cloud-deploy into your CI/CD pipeline with ready-to-use GitHub Actions workflows.
+
+### How It Works
+
+When using cloud-deploy with GitHub Actions:
+
+1. **Install cloud-deploy** in your workflow (downloaded from releases)
+2. **Run deployment commands** using your application's manifest file
+3. **Deploy to AWS/GCP** automatically after builds/tests pass
+
+```yaml
+# Example: .github/workflows/deploy.yml in YOUR app repository
+- name: Install cloud-deploy
+  run: |
+    curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+    sudo mv cloud-deploy /usr/local/bin/
+
+- name: Deploy to AWS
+  run: cloud-deploy -manifest manifests/production.yaml -command deploy
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+See [How It Works: Installing cloud-deploy in Your Workflows](docs/GITHUB_ACTIONS.md#how-it-works-installing-cloud-deploy-in-your-workflows) for complete details.
 
 ### Deployment Methods
 
@@ -469,9 +495,9 @@ Integrate cloud-deploy into your CI/CD pipeline with ready-to-use GitHub Actions
 
 ### Quick Setup
 
-**1. Copy workflows to your repository:**
+**1. Copy workflows to your application repository:**
 ```bash
-# In your application repository
+# In YOUR application repository (not cloud-deploy repo)
 mkdir -p .github/workflows
 cp cloud-deploy/.github/workflows/deploy.yml .github/workflows/
 cp cloud-deploy/.github/workflows/manual-deploy.yml .github/workflows/
@@ -486,7 +512,14 @@ Settings → Secrets and variables → Actions
 - GCP_CREDENTIALS
 ```
 
-**3. Deploy from GitHub UI:**
+**3. Create deployment manifests:**
+```bash
+# In YOUR application repository
+mkdir -p manifests
+# Create manifests/staging-aws.yaml, manifests/production-gcp.yaml, etc.
+```
+
+**4. Deploy from GitHub UI:**
 - Go to **Actions** tab
 - Select **Manual Deployment**
 - Choose provider, environment, and click **Run workflow**
