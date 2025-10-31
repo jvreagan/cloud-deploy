@@ -11,6 +11,7 @@ This directory contains example GitHub Actions workflows for integrating cloud-d
 | `manual-deploy.yml` | Manual trigger via UI | Production deployments, on-demand operations |
 | `label-deploy.yml` | PR labels | Review apps, staging deployments, testing |
 | `app-ci-cd.yml` | Full CI/CD pipeline | Complete application deployment workflow |
+| `deploy-multi-cloud.yml` | Multi-cloud deployment | Deploy to both AWS and GCP with failover |
 
 ### 2. Copy Workflows to Your Repository
 
@@ -201,26 +202,48 @@ deploy-production:
     manifest_path: manifests/production.yaml
 ```
 
-### Pattern 2: Multi-Cloud Deployment
+### Pattern 2: Multi-Cloud Active/Active Deployment
 
-Deploy to both AWS and GCP in parallel:
+Deploy to both AWS and GCP for redundancy and automatic failover:
+
+**See:** `deploy-multi-cloud.yml` for complete example
 
 ```yaml
-deploy:
-  strategy:
-    matrix:
-      include:
-        - provider: aws
-          manifest: manifests/aws-staging.yaml
-        - provider: gcp
-          manifest: manifests/gcp-staging.yaml
+# Deploys to both AWS and GCP simultaneously
+# Use with Cloudflare Load Balancing for automatic failover
 
-  uses: ./.github/workflows/deploy.yml
-  with:
-    provider: ${{ matrix.provider }}
-    environment: staging
-    manifest_path: ${{ matrix.manifest }}
+jobs:
+  deploy-aws:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cloud-deploy
+        run: |
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+      - name: Deploy to AWS
+        run: cloud-deploy -manifest manifests/aws-production.yaml -command deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  deploy-gcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cloud-deploy
+        run: |
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+      - name: Deploy to GCP
+        run: cloud-deploy -manifest manifests/gcp-production.yaml -command deploy
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
 ```
+
+**Complete guide:** [Multi-Cloud Deployment Guide](../../docs/MULTI_CLOUD.md)
 
 ### Pattern 3: Canary Deployment
 

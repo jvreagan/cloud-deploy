@@ -1,0 +1,224 @@
+# Example: Multi-Cloud Deployment Workflow
+# This workflow deploys the same application to both AWS and GCP
+#
+# IMPORTANT: Place this file in YOUR APPLICATION REPOSITORY
+# Location: .github/workflows/deploy-multi-cloud.yml (in your application repository)
+#
+# This workflow demonstrates:
+# 1. Deploying to AWS Elastic Beanstalk
+# 2. Deploying to GCP Cloud Run
+# 3. Running health checks after deployment
+# 4. Manual trigger with cloud selection
+
+name: Deploy Multi-Cloud
+
+on:
+  # Automatic deployment on push to main
+  push:
+    branches:
+      - main
+
+  # Manual deployment with cloud selection
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Which cloud(s) to deploy to'
+        required: true
+        type: choice
+        options:
+          - both        # Deploy to both AWS and GCP
+          - aws         # Deploy only to AWS
+          - gcp         # Deploy only to GCP
+        default: 'both'
+
+env:
+  # Customize these for your application
+  APP_NAME: multi-cloud-app
+
+jobs:
+  # Job 1: Deploy to AWS
+  deploy-aws:
+    name: Deploy to AWS
+    # Run if: pushed to main, OR manual trigger with 'both' or 'aws'
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.deploy_target == 'both' ||
+      github.event.inputs.deploy_target == 'aws'
+    runs-on: ubuntu-latest
+    environment:
+      name: production-aws
+      url: https://multi-cloud-app-aws.us-east-1.elasticbeanstalk.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cloud-deploy
+        run: |
+          # Download cloud-deploy from releases (pre-built binary)
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      - name: Deploy to AWS
+        id: deploy
+        run: |
+          echo "Deploying to AWS Elastic Beanstalk..."
+          cloud-deploy \
+            -manifest manifests/aws-production.yaml \
+            -command deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+
+      - name: Wait for AWS deployment
+        run: |
+          echo "Waiting for AWS deployment to stabilize..."
+          sleep 30
+
+      - name: Test AWS deployment
+        run: |
+          echo "Testing AWS health endpoint..."
+          # Replace with your actual AWS URL
+          AWS_URL="multi-cloud-app-aws.us-east-1.elasticbeanstalk.com"
+
+          # Test health endpoint
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://$AWS_URL/health)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+
+          echo "Response code: $HTTP_CODE"
+          echo "Response body: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ AWS deployment health check failed!"
+            exit 1
+          fi
+
+          echo "✅ AWS deployment successful!"
+          echo "$BODY" | jq '.'
+
+      - name: Get AWS deployment info
+        if: always()
+        run: |
+          cloud-deploy \
+            -manifest manifests/aws-production.yaml \
+            -command status
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # Job 2: Deploy to GCP
+  deploy-gcp:
+    name: Deploy to GCP
+    # Run if: pushed to main, OR manual trigger with 'both' or 'gcp'
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.deploy_target == 'both' ||
+      github.event.inputs.deploy_target == 'gcp'
+    runs-on: ubuntu-latest
+    environment:
+      name: production-gcp
+      # Update with your actual Cloud Run URL
+      url: https://multi-cloud-app-xxxxx-uc.a.run.app
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cloud-deploy
+        run: |
+          # Download cloud-deploy from releases (pre-built binary)
+          curl -L https://github.com/jvreagan/cloud-deploy/releases/latest/download/cloud-deploy_Linux_x86_64.tar.gz | tar -xz
+          sudo mv cloud-deploy /usr/local/bin/
+          cloud-deploy -version
+
+      - name: Deploy to GCP
+        id: deploy
+        run: |
+          echo "Deploying to GCP Cloud Run..."
+          cloud-deploy \
+            -manifest manifests/gcp-production.yaml \
+            -command deploy
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+
+      - name: Wait for GCP deployment
+        run: |
+          echo "Waiting for GCP deployment to stabilize..."
+          sleep 30
+
+      - name: Test GCP deployment
+        run: |
+          echo "Testing GCP health endpoint..."
+          # Replace with your actual GCP Cloud Run URL
+          GCP_URL="multi-cloud-app-xxxxx-uc.a.run.app"
+
+          # Test health endpoint
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://$GCP_URL/health)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+
+          echo "Response code: $HTTP_CODE"
+          echo "Response body: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ GCP deployment health check failed!"
+            exit 1
+          fi
+
+          echo "✅ GCP deployment successful!"
+          echo "$BODY" | jq '.'
+
+      - name: Get GCP deployment info
+        if: always()
+        run: |
+          cloud-deploy \
+            -manifest manifests/gcp-production.yaml \
+            -command status
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+
+  # Job 3: Deployment summary
+  summary:
+    name: Deployment Summary
+    needs: [deploy-aws, deploy-gcp]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate deployment summary
+        run: |
+          echo "# Multi-Cloud Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **AWS:** ${{ needs.deploy-aws.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GCP:** ${{ needs.deploy-gcp.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Author:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.deploy-aws.result }}" == "success" ] && [ "${{ needs.deploy-gcp.result }}" == "success" ]; then
+            echo "✅ **All deployments successful!**" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.deploy-aws.result }}" == "success" ] || [ "${{ needs.deploy-gcp.result }}" == "success" ]; then
+            echo "⚠️ **Partial deployment success**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **All deployments failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check if any deployment failed
+        if: |
+          (needs.deploy-aws.result == 'failure' && needs.deploy-aws.result != 'skipped') ||
+          (needs.deploy-gcp.result == 'failure' && needs.deploy-gcp.result != 'skipped')
+        run: |
+          echo "❌ One or more deployments failed!"
+          exit 1

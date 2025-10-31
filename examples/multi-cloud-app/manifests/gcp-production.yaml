@@ -1,0 +1,55 @@
+version: "1.0"
+
+provider:
+  name: gcp
+  region: us-central1
+
+  # IMPORTANT: Update these with your GCP details
+  # Get your project ID from: https://console.cloud.google.com/
+  project_id: YOUR_GCP_PROJECT_ID
+
+  # Get your billing account ID from: https://console.cloud.google.com/billing
+  billing_account_id: XXXXXX-XXXXXX-XXXXXX
+
+  # Path to your service account key JSON file
+  # See docs/GCP.md for instructions on creating a service account
+  credentials:
+    service_account_key_path: "/path/to/your-service-account-key.json"
+
+  # Make the service publicly accessible
+  public_access: true
+
+application:
+  name: multi-cloud-app
+  description: "Multi-cloud demo application - GCP deployment"
+
+deployment:
+  platform: docker
+  source:
+    type: local
+    path: .
+
+health_check:
+  type: basic
+  path: /health
+
+# Cloud Run resource configuration
+cloud_run:
+  cpu: 1
+  memory: "512Mi"
+  max_instances: 10
+  min_instances: 1  # Keep 1 instance always warm for better response times
+  timeout: 300      # 5 minutes
+  concurrency: 80   # Requests per container
+
+# Environment variables to identify which cloud the app is running on
+environment_variables:
+  CLOUD_PROVIDER: "gcp"
+  REGION: "us-central1"
+  NODE_ENV: "production"
+
+tags:
+  environment: production
+  cloud: gcp
+  application: multi-cloud-app
+  managed-by: cloud-deploy

@@ -1,0 +1,15 @@
+{
+  "name": "multi-cloud-app",
+  "version": "1.0.0",
+  "description": "Multi-cloud demo application for cloud-deploy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["multi-cloud", "aws", "gcp", "cloud-deploy"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

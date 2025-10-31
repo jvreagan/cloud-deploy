@@ -1,0 +1,49 @@
+version: "1.0"
+
+provider:
+  name: aws
+  region: us-east-1
+
+application:
+  name: multi-cloud-app
+  description: "Multi-cloud demo application - AWS deployment"
+
+environment:
+  name: multi-cloud-app-aws
+  cname: multi-cloud-app-aws  # Creates: multi-cloud-app-aws.us-east-1.elasticbeanstalk.com
+
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local
+    path: .
+
+instance:
+  type: t3.micro
+  environment_type: SingleInstance
+
+health_check:
+  type: enhanced
+  path: /health
+  interval: 30
+  timeout: 5
+  healthy_threshold: 3
+  unhealthy_threshold: 5
+
+# Environment variables to identify which cloud the app is running on
+environment_variables:
+  CLOUD_PROVIDER: "aws"
+  REGION: "us-east-1"
+  NODE_ENV: "production"
+
+# Enable monitoring for production
+monitoring:
+  enhanced_health: true
+  cloudwatch_metrics: true
+
+tags:
+  Environment: production
+  Cloud: aws
+  Application: multi-cloud-app
+  ManagedBy: cloud-deploy
