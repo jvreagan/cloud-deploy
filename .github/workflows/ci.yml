@@ -69,13 +69,20 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Run go fmt
+      - name: Check go fmt
         run: |
-          if [ -n "$(gofmt -s -l .)" ]; then
-            echo "Go code is not formatted:"
-            gofmt -s -d .
-            exit 1
+          UNFORMATTED=$(gofmt -s -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "⚠️  Go code is not formatted:"
+            echo "$UNFORMATTED"
+            echo ""
+            echo "The auto-format workflow will fix this automatically."
+            echo "Or install pre-commit hooks to format locally:"
+            echo "  ./scripts/install-hooks.sh"
+            # Don't fail - auto-format workflow will handle it
+            exit 0
           fi
+          echo "✅ All code is properly formatted"
 
       - name: Run go vet
         run: go vet ./...

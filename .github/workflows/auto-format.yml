@@ -1,0 +1,77 @@
+name: Auto Format
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    name: Auto-format code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Check if formatting needed
+        id: check
+        run: |
+          # Check if any files need formatting
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "needs_format=true" >> $GITHUB_OUTPUT
+            echo "Files needing formatting:"
+            echo "$UNFORMATTED"
+          else
+            echo "needs_format=false" >> $GITHUB_OUTPUT
+            echo "All files are properly formatted"
+          fi
+
+      - name: Format code
+        if: steps.check.outputs.needs_format == 'true'
+        run: |
+          echo "Formatting code..."
+          go fmt ./...
+
+      - name: Commit and push changes
+        if: steps.check.outputs.needs_format == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Check if there are changes to commit
+          if ! git diff --quiet; then
+            git add -u
+            git commit -m "style: Auto-format code with go fmt [skip ci]"
+            git push
+            echo "✅ Code formatted and pushed"
+          else
+            echo "No changes after formatting"
+          fi
+
+      - name: Comment on PR
+        if: steps.check.outputs.needs_format == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Code automatically formatted with `go fmt`'
+            });

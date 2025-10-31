@@ -499,3 +499,255 @@ func TestBuildOptionSettingsComplex(t *testing.T) {
 		t.Errorf("Expected 2 environment variables, found %d", foundEnvVars)
 	}
 }
+
+func TestZipDirectoryErrorCases(t *testing.T) {
+	t.Run("non-existent directory", func(t *testing.T) {
+		zipFile, err := os.CreateTemp("", "test-*.zip")
+		if err != nil {
+			t.Fatalf("Failed to create temp zip file: %v", err)
+		}
+		defer os.Remove(zipFile.Name())
+		defer zipFile.Close()
+
+		err = zipDirectory("/non/existent/path", zipFile)
+		if err == nil {
+			t.Error("Expected error for non-existent directory")
+		}
+	})
+
+	t.Run("empty directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		zipFile, err := os.CreateTemp("", "test-*.zip")
+		if err != nil {
+			t.Fatalf("Failed to create temp zip file: %v", err)
+		}
+		defer os.Remove(zipFile.Name())
+		defer zipFile.Close()
+
+		err = zipDirectory(tmpDir, zipFile)
+		if err != nil {
+			t.Fatalf("zipDirectory failed on empty directory: %v", err)
+		}
+	})
+}
+
+func TestBuildOptionSettingsWithoutOptionalFields(t *testing.T) {
+	provider := &Provider{
+		region: "us-east-1",
+	}
+
+	// Minimal manifest with no optional fields
+	m := &manifest.Manifest{
+		Instance: manifest.InstanceConfig{
+			Type:            "t2.micro",
+			EnvironmentType: "SingleInstance",
+		},
+		IAM:         manifest.IAMConfig{},
+		HealthCheck: manifest.HealthCheckConfig{},
+		Monitoring:  manifest.MonitoringConfig{},
+	}
+
+	settings := provider.buildOptionSettings(m)
+
+	// Should at least have instance type and environment type
+	if len(settings) < 2 {
+		t.Errorf("Expected at least 2 settings, got %d", len(settings))
+	}
+
+	// Verify basic settings are present
+	foundInstanceType := false
+	foundEnvType := false
+
+	for _, setting := range settings {
+		namespace := *setting.Namespace
+		optionName := *setting.OptionName
+
+		if namespace == "aws:autoscaling:launchconfiguration" && optionName == "InstanceType" {
+			foundInstanceType = true
+		}
+		if namespace == "aws:elasticbeanstalk:environment" && optionName == "EnvironmentType" {
+			foundEnvType = true
+		}
+
+		// Should not have optional settings
+		if optionName == "IamInstanceProfile" {
+			t.Error("IamInstanceProfile should not be set when not specified")
+		}
+		if optionName == "Application Healthcheck URL" {
+			t.Error("Health check URL should not be set when not specified")
+		}
+	}
+
+	if !foundInstanceType {
+		t.Error("InstanceType setting not found")
+	}
+	if !foundEnvType {
+		t.Error("EnvironmentType setting not found")
+	}
+}
+
+func TestBuildOptionSettingsLogsWithoutStreaming(t *testing.T) {
+	provider := &Provider{
+		region: "us-east-1",
+	}
+
+	m := &manifest.Manifest{
+		Instance: manifest.InstanceConfig{
+			Type:            "t2.micro",
+			EnvironmentType: "SingleInstance",
+		},
+		IAM:         manifest.IAMConfig{},
+		HealthCheck: manifest.HealthCheckConfig{},
+		Monitoring: manifest.MonitoringConfig{
+			CloudWatchLogs: &manifest.CloudWatchLogsConfig{
+				Enabled:       true,
+				RetentionDays: 14,
+				StreamLogs:    false, // Explicitly disabled
+			},
+		},
+	}
+
+	settings := provider.buildOptionSettings(m)
+
+	// Verify StreamLogs is still enabled (it should be)
+	foundStreamLogs := false
+	foundHealthStreaming := false
+
+	for _, setting := range settings {
+		namespace := *setting.Namespace
+		optionName := *setting.OptionName
+
+		if namespace == "aws:elasticbeanstalk:cloudwatch:logs" && optionName == "StreamLogs" {
+			foundStreamLogs = true
+		}
+		if namespace == "aws:elasticbeanstalk:cloudwatch:logs:health" && optionName == "HealthStreamingEnabled" {
+			foundHealthStreaming = true
+		}
+	}
+
+	if !foundStreamLogs {
+		t.Error("StreamLogs setting should be present when logs are enabled")
+	}
+	if foundHealthStreaming {
+		t.Error("HealthStreamingEnabled should not be set when StreamLogs is false")
+	}
+}
+
+func TestZipDirectoryWithSymlinks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a regular file
+	regularFile := filepath.Join(tmpDir, "regular.txt")
+	if err := os.WriteFile(regularFile, []byte("regular content"), 0644); err != nil {
+		t.Fatalf("Failed to create regular file: %v", err)
+	}
+
+	// Create a symlink (may not work on all systems)
+	symlinkPath := filepath.Join(tmpDir, "symlink.txt")
+	if err := os.Symlink(regularFile, symlinkPath); err != nil {
+		t.Skipf("Skipping symlink test: %v", err)
+	}
+
+	zipFile, err := os.CreateTemp("", "test-*.zip")
+	if err != nil {
+		t.Fatalf("Failed to create temp zip file: %v", err)
+	}
+	defer os.Remove(zipFile.Name())
+	defer zipFile.Close()
+
+	err = zipDirectory(tmpDir, zipFile)
+	if err != nil {
+		t.Fatalf("zipDirectory failed: %v", err)
+	}
+
+	// Verify zip was created
+	stat, err := zipFile.Stat()
+	if err != nil {
+		t.Fatalf("Failed to stat zip file: %v", err)
+	}
+	if stat.Size() == 0 {
+		t.Error("Expected non-zero zip file size")
+	}
+}
+
+func TestZipDirectoryWithSpecialCharactersInFilenames(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files with special characters
+	testFiles := []string{
+		"file with spaces.txt",
+		"file-with-dashes.txt",
+		"file_with_underscores.txt",
+		"file.multiple.dots.txt",
+	}
+
+	for _, filename := range testFiles {
+		fullPath := filepath.Join(tmpDir, filename)
+		if err := os.WriteFile(fullPath, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create file %s: %v", filename, err)
+		}
+	}
+
+	zipFile, err := os.CreateTemp("", "test-*.zip")
+	if err != nil {
+		t.Fatalf("Failed to create temp zip file: %v", err)
+	}
+	defer os.Remove(zipFile.Name())
+	defer zipFile.Close()
+
+	err = zipDirectory(tmpDir, zipFile)
+	if err != nil {
+		t.Fatalf("zipDirectory failed: %v", err)
+	}
+
+	// Verify all files are in the zip
+	if _, err := zipFile.Seek(0, 0); err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+
+	stat, err := zipFile.Stat()
+	if err != nil {
+		t.Fatalf("Failed to stat zip file: %v", err)
+	}
+
+	zipReader, err := zip.NewReader(zipFile, stat.Size())
+	if err != nil {
+		t.Fatalf("Failed to create zip reader: %v", err)
+	}
+
+	foundFiles := make(map[string]bool)
+	for _, f := range zipReader.File {
+		foundFiles[f.Name] = true
+	}
+
+	for _, expectedFile := range testFiles {
+		if !foundFiles[expectedFile] {
+			t.Errorf("Expected file '%s' not found in zip", expectedFile)
+		}
+	}
+}
+
+func TestProviderRegion(t *testing.T) {
+	tests := []struct {
+		name   string
+		region string
+	}{
+		{"us-east-1", "us-east-1"},
+		{"us-west-2", "us-west-2"},
+		{"eu-west-1", "eu-west-1"},
+		{"ap-southeast-1", "ap-southeast-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &Provider{
+				region: tt.region,
+			}
+
+			if provider.region != tt.region {
+				t.Errorf("Expected region '%s', got '%s'", tt.region, provider.region)
+			}
+		})
+	}
+}

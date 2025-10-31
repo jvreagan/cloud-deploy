@@ -80,9 +80,20 @@ cloud-deploy/
 ### Code Style
 
 - Follow standard Go conventions
-- Run `go fmt` before committing
+- Code is automatically formatted by GitHub Actions
+- Alternatively, install pre-commit hooks: `./scripts/install-hooks.sh`
+- Or run `go fmt ./...` manually before committing
 - Use meaningful variable and function names
 - Add comments for exported types and functions (Godoc format)
+
+**Automatic Formatting:**
+
+When you create a pull request, the auto-format workflow will:
+- Check if code needs formatting
+- Automatically run `go fmt` and commit fixes
+- Add a comment to your PR when formatting is applied
+
+No need to worry about formatting - GitHub Actions handles it!
 
 **Example Godoc comment:**
 
