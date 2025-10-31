@@ -175,6 +175,23 @@ func (p *Provider) Name() string {
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
 	fmt.Println("Starting Google Cloud Run deployment...")
 
+	// Step 0.5: Fetch secrets from Vault if configured
+	if m.Vault != nil && len(m.Secrets) > 0 {
+		vaultSecrets, err := m.FetchVaultSecrets(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch vault secrets: %w", err)
+		}
+
+		// Merge Vault secrets with environment variables
+		// Vault secrets take precedence over manifest environment variables
+		if m.EnvironmentVariables == nil {
+			m.EnvironmentVariables = make(map[string]string)
+		}
+		for key, value := range vaultSecrets {
+			m.EnvironmentVariables[key] = value
+		}
+	}
+
 	// Step 1: Create storage bucket for source code
 	bucketName := fmt.Sprintf("%s-cloud-deploy-source", p.projectID)
 	if err := p.ensureBucket(ctx, bucketName); err != nil {

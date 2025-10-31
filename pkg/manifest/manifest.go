@@ -4,9 +4,12 @@
 package manifest
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"regexp"
 
+	"github.com/jvreagan/cloud-deploy/pkg/vault"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,6 +58,12 @@ type Manifest struct {
 
 	// Environment variables to set in the deployment - optional
 	EnvironmentVariables map[string]string `yaml:"environment_variables,omitempty"`
+
+	// Vault configuration for secret management - optional
+	Vault *VaultConfig `yaml:"vault,omitempty"`
+
+	// Secrets to fetch from Vault and inject as environment variables - optional
+	Secrets []SecretConfig `yaml:"secrets,omitempty"`
 
 	// Tags to apply to cloud resources - optional
 	Tags map[string]string `yaml:"tags,omitempty"`
@@ -219,6 +228,48 @@ type IAMConfig struct {
 	ServiceRole string `yaml:"service_role,omitempty"`
 }
 
+// VaultConfig specifies HashiCorp Vault connection and authentication settings.
+type VaultConfig struct {
+	// Address is the Vault server URL (e.g., "http://127.0.0.1:8200")
+	Address string `yaml:"address"`
+
+	// Auth holds authentication configuration
+	Auth VaultAuthConfig `yaml:"auth"`
+
+	// TLSSkipVerify skips TLS certificate verification (not recommended for production)
+	TLSSkipVerify bool `yaml:"tls_skip_verify,omitempty"`
+}
+
+// VaultAuthConfig specifies how to authenticate to Vault.
+type VaultAuthConfig struct {
+	// Method is the auth method: "token", "approle", "aws-iam", "gcp-iam"
+	Method string `yaml:"method"`
+
+	// Token for token authentication (can be environment variable reference like "${VAULT_TOKEN}")
+	Token string `yaml:"token,omitempty"`
+
+	// RoleID for AppRole authentication (can be environment variable reference)
+	RoleID string `yaml:"role_id,omitempty"`
+
+	// SecretID for AppRole authentication (can be environment variable reference)
+	SecretID string `yaml:"secret_id,omitempty"`
+
+	// Role for AWS IAM or GCP IAM authentication
+	Role string `yaml:"role,omitempty"`
+}
+
+// SecretConfig defines a secret to fetch from Vault.
+type SecretConfig struct {
+	// Name is the environment variable name (e.g., "DATABASE_URL")
+	Name string `yaml:"name"`
+
+	// VaultPath is the full Vault path (e.g., "secret/data/myapp/database")
+	VaultPath string `yaml:"vault_path"`
+
+	// VaultKey is the key within the secret (e.g., "url")
+	VaultKey string `yaml:"vault_key"`
+}
+
 // Load reads a manifest file from disk, parses it, and validates it.
 // Returns an error if the file cannot be read, is invalid YAML, or fails validation.
 //
@@ -273,5 +324,88 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
+	// Vault validation
+	if m.Vault != nil {
+		if m.Vault.Address == "" {
+			return fmt.Errorf("vault.address is required when vault is configured")
+		}
+		if m.Vault.Auth.Method == "" {
+			return fmt.Errorf("vault.auth.method is required when vault is configured")
+		}
+	}
+
 	return nil
+}
+
+// FetchVaultSecrets fetches secrets from Vault and returns them as a map.
+// This is called during deployment to retrieve secrets and inject them as environment variables.
+//
+// Returns a map of environment variable names to secret values.
+func (m *Manifest) FetchVaultSecrets(ctx context.Context) (map[string]string, error) {
+	// If no Vault config or secrets, return empty map
+	if m.Vault == nil || len(m.Secrets) == 0 {
+		return make(map[string]string), nil
+	}
+
+	// Expand environment variables in Vault config
+	vaultConfig := &vault.Config{
+		Address:       m.Vault.Address,
+		TLSSkipVerify: m.Vault.TLSSkipVerify,
+		Auth: vault.AuthConfig{
+			Method:   m.Vault.Auth.Method,
+			Token:    expandEnvVars(m.Vault.Auth.Token),
+			RoleID:   expandEnvVars(m.Vault.Auth.RoleID),
+			SecretID: expandEnvVars(m.Vault.Auth.SecretID),
+			Role:     m.Vault.Auth.Role,
+		},
+	}
+
+	// Create Vault client
+	client, err := vault.NewClient(vaultConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create vault client: %w", err)
+	}
+	defer client.Close()
+
+	// Authenticate to Vault
+	fmt.Println("Authenticating to Vault...")
+	if err := client.Authenticate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to authenticate to vault: %w", err)
+	}
+
+	// Build secret refs map
+	secretRefs := make(map[string]vault.SecretRef)
+	for _, secret := range m.Secrets {
+		secretRefs[secret.Name] = vault.SecretRef{
+			Path: secret.VaultPath,
+			Key:  secret.VaultKey,
+		}
+	}
+
+	// Fetch all secrets
+	fmt.Printf("Fetching %d secrets from Vault...\n", len(secretRefs))
+	secrets, err := client.GetSecrets(ctx, secretRefs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch secrets from vault: %w", err)
+	}
+
+	fmt.Printf("Successfully retrieved %d secrets from Vault\n", len(secrets))
+	return secrets, nil
+}
+
+// expandEnvVars expands environment variable references in the format ${VAR_NAME}.
+// For example: "${VAULT_TOKEN}" becomes the value of the VAULT_TOKEN environment variable.
+func expandEnvVars(s string) string {
+	if s == "" {
+		return s
+	}
+
+	// Match ${VAR_NAME} pattern
+	re := regexp.MustCompile(`\$\{([^}]+)\}`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		// Extract variable name (remove ${ and })
+		varName := match[2 : len(match)-1]
+		// Get environment variable value
+		return os.Getenv(varName)
+	})
 }

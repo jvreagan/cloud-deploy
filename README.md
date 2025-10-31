@@ -25,6 +25,7 @@ brew install cloud-deploy
 - 🚀 **Fully Automated** - Creates applications, environments, and deploys via cloud APIs - no console needed
 - 🔄 **Idempotent** - Run the same command repeatedly safely
 - ⏪ **One-Command Rollback** - Instantly rollback to previous version if issues occur
+- 🔐 **HashiCorp Vault Integration** - Unified secret management across all cloud providers
 - 📦 **Docker Support** - Native support for containerized applications
 - 📊 **Built-in Monitoring** - CloudWatch metrics, enhanced health reporting, and log streaming (AWS)
 
@@ -371,6 +372,102 @@ When you run `cloud-deploy -command deploy`:
 6. ✅ Configures public access
 7. ✅ Sets up Cloud Logging (if enabled)
 8. ✅ Waits for service to be ready before returning
+
+## Secret Management with HashiCorp Vault
+
+cloud-deploy integrates with [HashiCorp Vault](https://www.vaultproject.io/) (Open Source) to provide unified, multi-cloud secret management. Store secrets once in Vault and deploy them to any cloud provider.
+
+### Why Vault?
+
+- **Multi-Cloud Flexibility** - Use the same secrets across AWS, GCP, Azure, and OCI
+- **Centralized Management** - Single source of truth for all your application secrets
+- **Security** - Encryption at rest and in transit, fine-grained access control, audit logs
+- **Open Source** - Free to use, self-hosted, no vendor lock-in
+
+### Quick Example
+
+**1. Start Vault (dev mode for testing):**
+```bash
+docker run -d --name vault \
+  -p 8200:8200 \
+  -e VAULT_DEV_ROOT_TOKEN_ID=myroot \
+  hashicorp/vault:latest
+
+export VAULT_ADDR='http://127.0.0.1:8200'
+export VAULT_TOKEN='myroot'
+```
+
+**2. Store secrets:**
+```bash
+# Enable KV secrets engine
+vault secrets enable -path=secret kv-v2
+
+# Store application secrets
+vault kv put secret/myapp/database url="postgresql://user:pass@host:5432/db"
+vault kv put secret/myapp/stripe api_key="sk_live_xxx"
+```
+
+**3. Configure manifest:**
+```yaml
+version: "1.0"
+
+# Vault configuration
+vault:
+  address: "http://127.0.0.1:8200"
+  auth:
+    method: token
+    token: "${VAULT_TOKEN}"
+
+# Secrets from Vault
+secrets:
+  - name: DATABASE_URL
+    vault_path: secret/data/myapp/database
+    vault_key: url
+  - name: STRIPE_API_KEY
+    vault_path: secret/data/myapp/stripe
+    vault_key: api_key
+
+# Regular environment variables
+environment_variables:
+  ENV: production
+  LOG_LEVEL: info
+
+provider:
+  name: aws
+  region: us-east-1
+
+# ... rest of manifest
+```
+
+**4. Deploy with secrets:**
+```bash
+export VAULT_TOKEN=myroot
+cloud-deploy -command deploy -manifest deploy-manifest.yaml
+```
+
+Your application will receive `DATABASE_URL` and `STRIPE_API_KEY` as environment variables, fetched securely from Vault at deployment time.
+
+### Authentication Methods
+
+- **Token** - Simple token-based auth (good for dev/testing)
+- **AppRole** - Role-based auth (recommended for production)
+- **AWS IAM** - Use AWS credentials to authenticate (coming soon)
+- **GCP IAM** - Use GCP credentials to authenticate (coming soon)
+
+### Documentation
+
+For complete Vault setup instructions, production best practices, and advanced configuration:
+
+📚 **[Full Vault Integration Guide](docs/VAULT_INTEGRATION.md)**
+
+Topics covered:
+- Complete Vault setup (dev and production)
+- Secret organization strategies
+- Policy configuration
+- Multiple authentication methods
+- Multi-cloud deployment examples
+- Security best practices
+- Troubleshooting guide
 
 ## Commands
 

@@ -1,0 +1,80 @@
+version: "1.0"
+
+# HashiCorp Vault configuration for secret management
+vault:
+  # Vault server address
+  address: "http://127.0.0.1:8200"
+
+  # Authentication configuration
+  auth:
+    # Method: token, approle, aws-iam, gcp-iam
+    method: token
+
+    # Token authentication (reads from VAULT_TOKEN environment variable)
+    token: "${VAULT_TOKEN}"
+
+  # Skip TLS verification (only for dev/testing)
+  tls_skip_verify: false
+
+# Secrets to fetch from Vault and inject as environment variables
+secrets:
+  # Database connection string
+  - name: DATABASE_URL
+    vault_path: secret/data/myapp/database
+    vault_key: url
+
+  # Stripe API key
+  - name: STRIPE_API_KEY
+    vault_path: secret/data/myapp/stripe
+    vault_key: api_key
+
+  # JWT signing key
+  - name: JWT_SECRET
+    vault_path: secret/data/myapp/jwt
+    vault_key: signing_key
+
+# Regular environment variables (non-secret configuration)
+environment_variables:
+  ENV: production
+  LOG_LEVEL: info
+  ENABLE_METRICS: "true"
+
+provider:
+  name: aws
+  region: us-east-1
+
+application:
+  name: myapp
+  description: "My application with Vault secrets"
+
+environment:
+  name: myapp-prod
+  cname: myapp-prod
+
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local
+    path: "."
+
+instance:
+  type: t3.micro
+  environment_type: LoadBalanced
+
+health_check:
+  type: enhanced
+  path: /health
+
+monitoring:
+  enhanced_health: true
+  cloudwatch_metrics: true
+  cloudwatch_logs:
+    enabled: true
+    retention_days: 7
+    stream_logs: true
+
+tags:
+  Project: myapp
+  ManagedBy: cloud-deploy
+  Environment: production
