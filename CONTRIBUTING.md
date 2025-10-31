@@ -42,6 +42,9 @@ cd cloud-deploy
 # Install dependencies
 go mod download
 
+# Install git hooks (recommended)
+./scripts/install-hooks.sh
+
 # Build the project
 go build -o cloud-deploy cmd/cloud-deploy/main.go
 
@@ -264,25 +267,56 @@ go tool cover -html=coverage.out
 
 ### Integration Tests
 
-Integration tests require actual cloud credentials. Mark them with build tags:
+Integration tests require actual cloud credentials and deploy real resources. They are marked with build tags to prevent them from running in normal test runs.
 
-```go
-//go:build integration
+**Integration tests are defined in:**
+- `pkg/providers/aws/integration_test.go` - AWS Elastic Beanstalk tests
+- `pkg/providers/gcp/integration_test.go` - Google Cloud Run tests
 
-package aws
+#### Running AWS Integration Tests
 
-import "testing"
-
-func TestAWSDeployment(t *testing.T) {
-    // Integration test requiring AWS credentials
-}
-```
-
-Run integration tests:
+Set up AWS credentials:
 
 ```bash
-go test -tags=integration ./...
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_REGION="us-east-1"  # Optional, defaults to us-east-1
 ```
+
+Run the tests:
+
+```bash
+go test -tags=integration -v ./pkg/providers/aws
+```
+
+#### Running GCP Integration Tests
+
+Set up GCP credentials:
+
+```bash
+export GCP_PROJECT_ID="your-project-id"
+export GCP_BILLING_ACCOUNT_ID="XXXXXX-XXXXXX-XXXXXX"
+export GCP_CREDENTIALS='{"type":"service_account","project_id":"..."}'
+```
+
+Run the tests:
+
+```bash
+go test -tags=integration -v ./pkg/providers/gcp
+```
+
+#### Running All Integration Tests
+
+```bash
+# Set up both AWS and GCP credentials, then:
+go test -tags=integration -v ./...
+```
+
+**Important Notes:**
+- Integration tests deploy real resources and may incur costs
+- Tests automatically clean up resources after completion
+- Tests are skipped if credentials are not available
+- Integration tests take longer to run (10-30 minutes)
 
 ### Manual Testing
 

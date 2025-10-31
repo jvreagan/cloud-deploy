@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        continue-on-error: true
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run go fmt
+        run: |
+          if [ -n "$(gofmt -s -l .)" ]; then
+            echo "Go code is not formatted:"
+            gofmt -s -d .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build CLI
+        run: go build -v -o cloud-deploy ./cmd/cloud-deploy
+
+      - name: Build Manifest UI
+        run: go build -v -o manifest-ui ./cmd/manifest-ui
+
+      - name: Verify binaries
+        run: |
+          ./cloud-deploy -version
+          echo "CLI binary built successfully"
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    # Only run integration tests if secrets are available (not on forks)
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run integration tests
+        run: go test -v -tags=integration -timeout=30m ./...
+        env:
+          # AWS credentials (if available)
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          # GCP credentials (if available)
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_BILLING_ACCOUNT_ID: ${{ secrets.GCP_BILLING_ACCOUNT_ID }}
+        continue-on-error: true  # Don't fail CI if integration tests fail (credentials might not be available)

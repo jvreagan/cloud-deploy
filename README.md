@@ -1,5 +1,9 @@
 # cloud-deploy
 
+[![CI](https://github.com/jvreagan/cloud-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/jvreagan/cloud-deploy/actions/workflows/ci.yml)
+[![Release](https://github.com/jvreagan/cloud-deploy/actions/workflows/release.yml/badge.svg)](https://github.com/jvreagan/cloud-deploy/actions/workflows/release.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jvreagan/cloud-deploy)](https://goreportcard.com/report/github.com/jvreagan/cloud-deploy)
+
 **Manifest-driven multi-cloud deployment tool**
 
 `cloud-deploy` is a command-line tool that simplifies deploying containerized applications to multiple cloud providers using a single declarative manifest file. Think of it as "docker-compose for cloud deployments."
@@ -396,7 +400,19 @@ cloud-deploy -command deploy
 
 ## Development
 
+### Quick Start
+
 ```bash
+# Clone the repository
+git clone https://github.com/jvreagan/cloud-deploy.git
+cd cloud-deploy
+
+# Install dependencies
+go mod download
+
+# Install git hooks (optional but recommended)
+./scripts/install-hooks.sh
+
 # Run tests
 go test ./...
 
@@ -406,6 +422,38 @@ go build -o cloud-deploy cmd/cloud-deploy/main.go
 # Run locally
 ./cloud-deploy -command deploy -manifest examples/aws-simple.yaml
 ```
+
+### Testing
+
+cloud-deploy has comprehensive test coverage including unit tests, integration tests, and CI automation.
+
+**Run unit tests:**
+```bash
+go test ./...                          # Run all unit tests
+go test -v ./...                       # Verbose output
+go test -cover ./...                   # With coverage
+go test -race ./...                    # With race detection
+```
+
+**Run integration tests** (requires cloud credentials):
+```bash
+# AWS integration tests
+export AWS_ACCESS_KEY_ID="your-key"
+export AWS_SECRET_ACCESS_KEY="your-secret"
+go test -tags=integration -v ./pkg/providers/aws
+
+# GCP integration tests
+export GCP_PROJECT_ID="your-project"
+export GCP_CREDENTIALS='{"type":"service_account",...}'
+go test -tags=integration -v ./pkg/providers/gcp
+```
+
+**Pre-commit hooks:** Install git hooks to automatically run tests before commits:
+```bash
+./scripts/install-hooks.sh
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.
 
 ## Examples
 
