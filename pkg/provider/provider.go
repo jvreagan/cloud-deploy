@@ -9,6 +9,7 @@ import (
 
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
 	"github.com/jvreagan/cloud-deploy/pkg/providers/aws"
+	"github.com/jvreagan/cloud-deploy/pkg/providers/azure"
 	"github.com/jvreagan/cloud-deploy/pkg/providers/gcp"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
 )
@@ -99,7 +100,11 @@ func Factory(ctx context.Context, m *manifest.Manifest) (Provider, error) {
 	case "gcp":
 		return gcp.New(ctx, &m.Provider)
 	case "azure":
-		return nil, fmt.Errorf("Azure provider not yet implemented")
+		var azureCreds *manifest.AzureCredentialsConfig
+		if m.Provider.Credentials != nil && m.Provider.Credentials.Azure != nil {
+			azureCreds = m.Provider.Credentials.Azure
+		}
+		return azure.New(ctx, m.Provider.SubscriptionID, m.Provider.Region, m.Provider.ResourceGroup, azureCreds)
 	case "oci":
 		return nil, fmt.Errorf("OCI provider not yet implemented")
 	default:

@@ -31,12 +31,12 @@ brew install cloud-deploy
 
 ## Status
 
-🚀 **Active Development** - AWS and GCP providers implemented
+🚀 **Active Development** - AWS, GCP, and Azure providers implemented
 
 **Supported Providers:**
 - [x] AWS Elastic Beanstalk
 - [x] Google Cloud Run
-- [ ] Azure Container Instances
+- [x] Azure Container Instances
 - [ ] Oracle Cloud Container Instances
 
 ## Installation

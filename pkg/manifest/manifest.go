@@ -47,6 +47,9 @@ type Manifest struct {
 	// Cloud Run configuration (GCP-specific) - optional
 	CloudRun *CloudRunConfig `yaml:"cloud_run,omitempty"`
 
+	// Azure configuration (Azure-specific) - optional
+	Azure *AzureConfig `yaml:"azure,omitempty"`
+
 	// Health check configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 
@@ -94,6 +97,13 @@ type ProviderConfig struct {
 
 	// GCP-specific: Organization ID (optional, for creating projects under an organization)
 	OrganizationID string `yaml:"organization_id,omitempty"`
+
+	// Azure-specific: Subscription ID (required for Azure provider)
+	SubscriptionID string `yaml:"subscription_id,omitempty"`
+
+	// Azure-specific: Resource Group name (required for Azure provider)
+	// Will be created if it doesn't exist
+	ResourceGroup string `yaml:"resource_group,omitempty"`
 }
 
 // CredentialsConfig contains cloud provider credentials.
@@ -111,6 +121,21 @@ type CredentialsConfig struct {
 
 	// GCP: Or provide service account JSON content directly (base64 encoded or raw JSON string)
 	ServiceAccountKeyJSON string `yaml:"service_account_key_json,omitempty"`
+
+	// Azure: Service Principal credentials (optional, can use Azure CLI credentials)
+	Azure *AzureCredentialsConfig `yaml:"azure,omitempty"`
+}
+
+// AzureCredentialsConfig contains Azure Service Principal credentials.
+type AzureCredentialsConfig struct {
+	// Client ID (Application ID) of the Service Principal
+	ClientID string `yaml:"client_id,omitempty"`
+
+	// Client Secret of the Service Principal
+	ClientSecret string `yaml:"client_secret,omitempty"`
+
+	// Tenant ID (Directory ID)
+	TenantID string `yaml:"tenant_id,omitempty"`
 }
 
 // ApplicationConfig defines the application being deployed.
@@ -181,6 +206,15 @@ type CloudRunConfig struct {
 
 	// Request timeout in seconds (max: 3600 for 1st gen, 86400 for 2nd gen) - default: 300
 	TimeoutSeconds int32 `yaml:"timeout_seconds,omitempty"`
+}
+
+// AzureConfig specifies Azure Container Instances-specific configuration.
+type AzureConfig struct {
+	// CPU allocation in cores (e.g., 1.0, 2.0) - default: 1.0
+	CPU float64 `yaml:"cpu,omitempty"`
+
+	// Memory allocation in GB (e.g., 1.5, 2.0, 4.0) - default: 1.5
+	MemoryGB float64 `yaml:"memory_gb,omitempty"`
 }
 
 // HealthCheckConfig defines how the cloud provider should check application health.
@@ -321,6 +355,16 @@ func (m *Manifest) Validate() error {
 		}
 		if m.Provider.BillingAccountID == "" {
 			return fmt.Errorf("provider.billing_account_id is required for GCP deployments")
+		}
+	}
+
+	// Azure-specific validation
+	if m.Provider.Name == "azure" {
+		if m.Provider.SubscriptionID == "" {
+			return fmt.Errorf("provider.subscription_id is required for Azure deployments")
+		}
+		if m.Provider.ResourceGroup == "" {
+			return fmt.Errorf("provider.resource_group is required for Azure deployments")
 		}
 	}
 

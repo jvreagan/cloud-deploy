@@ -61,15 +61,17 @@ func TestFactory(t *testing.T) {
 			errorMessage: "failed to create Cloud Resource Manager client",
 		},
 		{
-			name: "Azure provider - not implemented",
+			name: "Azure provider",
 			manifest: &manifest.Manifest{
 				Provider: manifest.ProviderConfig{
-					Name:   "azure",
-					Region: "eastus",
+					Name:           "azure",
+					Region:         "eastus",
+					SubscriptionID: "test-subscription-id",
+					ResourceGroup:  "test-rg",
 				},
 			},
-			expectError:  true,
-			errorMessage: "Azure provider not yet implemented",
+			expectError:  false,
+			providerName: "azure",
 		},
 		{
 			name: "OCI provider - not implemented",

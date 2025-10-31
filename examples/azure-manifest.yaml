@@ -1,0 +1,53 @@
+version: "1.0"
+
+provider:
+  name: azure
+  region: eastus  # Azure location/region (e.g., eastus, westus2, westeurope)
+
+  # Azure subscription ID (required)
+  subscription_id: "YOUR_SUBSCRIPTION_ID"
+
+  # Resource group name (will be created if it doesn't exist)
+  resource_group: "cloud-deploy-rg"
+
+  # Optional: Service Principal credentials
+  # If not provided, will use Azure CLI credentials or Managed Identity
+  credentials:
+    azure:
+      client_id: "YOUR_CLIENT_ID"
+      client_secret: "YOUR_CLIENT_SECRET"
+      tenant_id: "YOUR_TENANT_ID"
+
+application:
+  name: myapp
+  description: "My application on Azure Container Instances"
+
+environment:
+  name: myapp-prod  # This will be the container group name
+
+deployment:
+  platform: docker
+  source:
+    type: local
+    path: "."  # Directory containing Dockerfile
+
+# Azure-specific configuration
+azure:
+  cpu: 1.0          # CPU cores (0.5, 1.0, 2.0, 4.0)
+  memory_gb: 1.5    # Memory in GB (0.5, 1.0, 1.5, 2.0, 4.0, 8.0)
+
+# Environment variables
+environment_variables:
+  ENV: production
+  LOG_LEVEL: info
+  PORT: "8080"
+
+# Health check configuration
+health_check:
+  type: basic
+  path: /health
+
+tags:
+  Project: myapp
+  ManagedBy: cloud-deploy
+  Environment: production
