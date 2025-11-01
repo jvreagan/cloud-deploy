@@ -38,3 +38,4 @@ deploy-manifest.yaml
 
 # Generated manifests from UI
 generated-manifests/
+.claude-session.md
