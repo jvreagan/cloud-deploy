@@ -26,20 +26,20 @@ type ManifestRequest struct {
 }
 
 type ProviderConfig struct {
-	Name             string               `json:"name" yaml:"name"`
-	Region           string               `json:"region" yaml:"region"`
-	ProjectID        string               `json:"project_id,omitempty" yaml:"project_id,omitempty"`
-	BillingAccountID string               `json:"billing_account_id,omitempty" yaml:"billing_account_id,omitempty"`
-	OrganizationID   string               `json:"organization_id,omitempty" yaml:"organization_id,omitempty"`
-	PublicAccess     *bool                `json:"public_access,omitempty" yaml:"public_access,omitempty"`
-	ResourceGroup    string               `json:"resource_group,omitempty" yaml:"resource_group,omitempty"`
-	SubscriptionID   string               `json:"subscription_id,omitempty" yaml:"subscription_id,omitempty"`
-	Instance         *InstanceConfig      `json:"instance,omitempty" yaml:"instance,omitempty"`
-	CloudRun         *CloudRunConfig      `json:"cloud_run,omitempty" yaml:"cloud_run,omitempty"`
+	Name             string                `json:"name" yaml:"name"`
+	Region           string                `json:"region" yaml:"region"`
+	ProjectID        string                `json:"project_id,omitempty" yaml:"project_id,omitempty"`
+	BillingAccountID string                `json:"billing_account_id,omitempty" yaml:"billing_account_id,omitempty"`
+	OrganizationID   string                `json:"organization_id,omitempty" yaml:"organization_id,omitempty"`
+	PublicAccess     *bool                 `json:"public_access,omitempty" yaml:"public_access,omitempty"`
+	ResourceGroup    string                `json:"resource_group,omitempty" yaml:"resource_group,omitempty"`
+	SubscriptionID   string                `json:"subscription_id,omitempty" yaml:"subscription_id,omitempty"`
+	Instance         *InstanceConfig       `json:"instance,omitempty" yaml:"instance,omitempty"`
+	CloudRun         *CloudRunConfig       `json:"cloud_run,omitempty" yaml:"cloud_run,omitempty"`
 	Container        *AzureContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
-	HealthCheck      *HealthCheckConfig   `json:"health_check,omitempty" yaml:"health_check,omitempty"`
-	Monitoring       *MonitoringConfig    `json:"monitoring,omitempty" yaml:"monitoring,omitempty"`
-	IAM              *IAMConfig           `json:"iam,omitempty" yaml:"iam,omitempty"`
+	HealthCheck      *HealthCheckConfig    `json:"health_check,omitempty" yaml:"health_check,omitempty"`
+	Monitoring       *MonitoringConfig     `json:"monitoring,omitempty" yaml:"monitoring,omitempty"`
+	IAM              *IAMConfig            `json:"iam,omitempty" yaml:"iam,omitempty"`
 }
 
 type CredentialsManager struct {
@@ -48,20 +48,20 @@ type CredentialsManager struct {
 }
 
 type AzureContainerConfig struct {
-	CPU         float32 `json:"cpu,omitempty" yaml:"cpu,omitempty"`
-	Memory      float32 `json:"memory,omitempty" yaml:"memory,omitempty"`
-	Port        int32   `json:"port,omitempty" yaml:"port,omitempty"`
-	RestartPolicy string `json:"restart_policy,omitempty" yaml:"restart_policy,omitempty"`
+	CPU           float32 `json:"cpu,omitempty" yaml:"cpu,omitempty"`
+	Memory        float32 `json:"memory,omitempty" yaml:"memory,omitempty"`
+	Port          int32   `json:"port,omitempty" yaml:"port,omitempty"`
+	RestartPolicy string  `json:"restart_policy,omitempty" yaml:"restart_policy,omitempty"`
 }
 
 type CloudflareConfig struct {
-	Enabled      bool                 `json:"enabled" yaml:"enabled"`
-	ZoneID       string               `json:"zone_id" yaml:"zone_id"`
-	AccountID    string               `json:"account_id,omitempty" yaml:"account_id,omitempty"`
-	Domain       string               `json:"domain" yaml:"domain"`
+	Enabled      bool                   `json:"enabled" yaml:"enabled"`
+	ZoneID       string                 `json:"zone_id" yaml:"zone_id"`
+	AccountID    string                 `json:"account_id,omitempty" yaml:"account_id,omitempty"`
+	Domain       string                 `json:"domain" yaml:"domain"`
 	LoadBalancer CloudflareLoadBalancer `json:"load_balancer" yaml:"load_balancer"`
-	Pools        []CloudflarePool     `json:"pools,omitempty" yaml:"pools,omitempty"`
-	Monitors     []CloudflareMonitor  `json:"monitors,omitempty" yaml:"monitors,omitempty"`
+	Pools        []CloudflarePool       `json:"pools,omitempty" yaml:"pools,omitempty"`
+	Monitors     []CloudflareMonitor    `json:"monitors,omitempty" yaml:"monitors,omitempty"`
 }
 
 type CloudflareLoadBalancer struct {
@@ -72,10 +72,10 @@ type CloudflareLoadBalancer struct {
 }
 
 type CloudflarePool struct {
-	Name        string              `json:"name" yaml:"name"`
-	Description string              `json:"description,omitempty" yaml:"description,omitempty"`
-	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"` // Auto-link to provider
-	Origins     []CloudflareOrigin  `json:"origins,omitempty" yaml:"origins,omitempty"`
+	Name        string             `json:"name" yaml:"name"`
+	Description string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Provider    string             `json:"provider,omitempty" yaml:"provider,omitempty"` // Auto-link to provider
+	Origins     []CloudflareOrigin `json:"origins,omitempty" yaml:"origins,omitempty"`
 }
 
 type CloudflareOrigin struct {
