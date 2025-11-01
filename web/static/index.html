@@ -169,7 +169,7 @@
 <body>
     <div class="container">
         <h1>Cloud Deploy Manifest Generator</h1>
-        <p class="subtitle">Generate deployment manifests for AWS and GCP</p>
+        <p class="subtitle">Generate deployment manifests for AWS, GCP, and Azure</p>
 
         <form id="manifestForm">
             <!-- Provider Selection -->
@@ -181,6 +181,7 @@
                         <option value="">-- Choose a provider --</option>
                         <option value="aws">AWS (Elastic Beanstalk)</option>
                         <option value="gcp">GCP (Cloud Run)</option>
+                        <option value="azure">Azure (Container Instances)</option>
                     </select>
                 </div>
             </div>
@@ -269,8 +270,7 @@
                     <div class="form-group">
                         <label for="awsRegion">Region <span class="required">*</span></label>
                         <select id="awsRegion" required>
-                            <option value="">-- Select region --</option>
-                            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                            <option value="us-east-1" selected>us-east-1 (N. Virginia)</option>
                             <option value="us-east-2">us-east-2 (Ohio)</option>
                             <option value="us-west-1">us-west-1 (N. California)</option>
                             <option value="us-west-2">us-west-2 (Oregon)</option>
@@ -294,8 +294,7 @@
                         <div class="form-group">
                             <label for="instanceType">Instance Type</label>
                             <select id="instanceType">
-                                <option value="">-- Select type --</option>
-                                <option value="t3.micro">t3.micro</option>
+                                <option value="t3.micro" selected>t3.micro</option>
                                 <option value="t3.small">t3.small</option>
                                 <option value="t3.medium">t3.medium</option>
                                 <option value="t3.large">t3.large</option>
@@ -304,8 +303,7 @@
                         <div class="form-group">
                             <label for="envType">Environment Type</label>
                             <select id="envType">
-                                <option value="">-- Select type --</option>
-                                <option value="SingleInstance">Single Instance</option>
+                                <option value="SingleInstance" selected>Single Instance</option>
                                 <option value="LoadBalanced">Load Balanced</option>
                             </select>
                         </div>
@@ -319,8 +317,7 @@
                         <div class="form-group">
                             <label for="healthCheckType">Type</label>
                             <select id="healthCheckType">
-                                <option value="">-- Select type --</option>
-                                <option value="basic">Basic</option>
+                                <option value="basic" selected>Basic</option>
                                 <option value="enhanced">Enhanced</option>
                             </select>
                         </div>
@@ -392,8 +389,7 @@
                     <div class="form-group">
                         <label for="gcpRegion">Region <span class="required">*</span></label>
                         <select id="gcpRegion" required>
-                            <option value="">-- Select region --</option>
-                            <option value="us-central1">us-central1 (Iowa)</option>
+                            <option value="us-central1" selected>us-central1 (Iowa)</option>
                             <option value="us-east1">us-east1 (South Carolina)</option>
                             <option value="us-west1">us-west1 (Oregon)</option>
                             <option value="europe-west1">europe-west1 (Belgium)</option>
@@ -503,6 +499,100 @@
                 </div>
             </div>
 
+            <!-- Azure-Specific Fields -->
+            <div id="azureFields" class="hidden">
+                <div class="form-section">
+                    <h2>Azure Configuration</h2>
+                    <div class="form-group">
+                        <label for="azureRegion">Region <span class="required">*</span></label>
+                        <select id="azureRegion" required>
+                            <option value="eastus" selected>eastus (East US)</option>
+                            <option value="eastus2">eastus2 (East US 2)</option>
+                            <option value="westus">westus (West US)</option>
+                            <option value="westus2">westus2 (West US 2)</option>
+                            <option value="centralus">centralus (Central US)</option>
+                            <option value="northeurope">northeurope (North Europe)</option>
+                            <option value="westeurope">westeurope (West Europe)</option>
+                            <option value="southeastasia">southeastasia (Southeast Asia)</option>
+                            <option value="japaneast">japaneast (Japan East)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="subscriptionId">Subscription ID <span class="required">*</span></label>
+                        <input type="text" id="subscriptionId" placeholder="00000000-0000-0000-0000-000000000000" required>
+                        <div class="help-text">Azure subscription ID (or use ${AZURE_SUBSCRIPTION_ID})</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="resourceGroup">Resource Group <span class="required">*</span></label>
+                        <input type="text" id="resourceGroup" placeholder="my-resource-group" required>
+                        <div class="help-text">Will be created if it doesn't exist</div>
+                    </div>
+                </div>
+
+                <!-- Azure Container Configuration -->
+                <div class="form-section">
+                    <h2>Container Configuration</h2>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="azureCpu">CPU (cores)</label>
+                            <select id="azureCpu">
+                                <option value="1.0" selected>1.0</option>
+                                <option value="2.0">2.0</option>
+                                <option value="4.0">4.0</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="azureMemory">Memory (GB)</label>
+                            <select id="azureMemory">
+                                <option value="1.5" selected>1.5</option>
+                                <option value="2.0">2.0</option>
+                                <option value="4.0">4.0</option>
+                                <option value="8.0">8.0</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Azure Credentials -->
+                <div class="form-section">
+                    <h2>Azure Credentials</h2>
+                    <div class="help-text" style="margin-bottom: 10px;">Use environment variables or provide Service Principal credentials</div>
+                    <div class="form-group">
+                        <label for="azureClientId">Client ID</label>
+                        <input type="text" id="azureClientId" placeholder="${AZURE_CLIENT_ID}">
+                        <div class="help-text">Service Principal Application (client) ID</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="azureClientSecret">Client Secret</label>
+                        <input type="text" id="azureClientSecret" placeholder="${AZURE_CLIENT_SECRET}">
+                        <div class="help-text">Service Principal client secret</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="azureTenantId">Tenant ID</label>
+                        <input type="text" id="azureTenantId" placeholder="${AZURE_TENANT_ID}">
+                        <div class="help-text">Azure Active Directory tenant ID</div>
+                    </div>
+                </div>
+
+                <!-- Azure Health Check -->
+                <div class="form-section">
+                    <h2>Health Check</h2>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="azureHealthCheckType">Type</label>
+                            <select id="azureHealthCheckType">
+                                <option value="basic" selected>Basic</option>
+                                <option value="enhanced">Enhanced</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="azureHealthCheckPath">Path</label>
+                            <input type="text" id="azureHealthCheckPath" placeholder="/health">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Submit Buttons -->
             <div class="button-group">
                 <button type="submit" class="btn-primary">Generate Manifest</button>
@@ -521,32 +611,55 @@
             const commonFields = document.getElementById('commonFields');
             const awsFields = document.getElementById('awsFields');
             const gcpFields = document.getElementById('gcpFields');
+            const azureFields = document.getElementById('azureFields');
 
             if (provider) {
                 commonFields.classList.remove('hidden');
                 if (provider === 'aws') {
                     awsFields.classList.remove('hidden');
                     gcpFields.classList.add('hidden');
+                    azureFields.classList.add('hidden');
                     // Enable/disable required fields
                     document.getElementById('awsRegion').required = true;
                     document.getElementById('gcpRegion').required = false;
                     document.getElementById('projectId').required = false;
                     document.getElementById('billingAccountId').required = false;
                     document.getElementById('serviceAccountKeyPath').required = false;
+                    document.getElementById('azureRegion').required = false;
+                    document.getElementById('subscriptionId').required = false;
+                    document.getElementById('resourceGroup').required = false;
                 } else if (provider === 'gcp') {
                     gcpFields.classList.remove('hidden');
                     awsFields.classList.add('hidden');
+                    azureFields.classList.add('hidden');
                     // Enable/disable required fields
                     document.getElementById('gcpRegion').required = true;
                     document.getElementById('projectId').required = true;
                     document.getElementById('billingAccountId').required = true;
                     document.getElementById('serviceAccountKeyPath').required = true;
                     document.getElementById('awsRegion').required = false;
+                    document.getElementById('azureRegion').required = false;
+                    document.getElementById('subscriptionId').required = false;
+                    document.getElementById('resourceGroup').required = false;
+                } else if (provider === 'azure') {
+                    azureFields.classList.remove('hidden');
+                    awsFields.classList.add('hidden');
+                    gcpFields.classList.add('hidden');
+                    // Enable/disable required fields
+                    document.getElementById('azureRegion').required = true;
+                    document.getElementById('subscriptionId').required = true;
+                    document.getElementById('resourceGroup').required = true;
+                    document.getElementById('awsRegion').required = false;
+                    document.getElementById('gcpRegion').required = false;
+                    document.getElementById('projectId').required = false;
+                    document.getElementById('billingAccountId').required = false;
+                    document.getElementById('serviceAccountKeyPath').required = false;
                 }
             } else {
                 commonFields.classList.add('hidden');
                 awsFields.classList.add('hidden');
                 gcpFields.classList.add('hidden');
+                azureFields.classList.add('hidden');
             }
         });
 
@@ -721,6 +834,46 @@
                     if (document.getElementById('gcpStreamLogs').checked) {
                         manifest.monitoring.cloudwatch_logs.stream_logs = true;
                     }
+                }
+            }
+
+            // Add Azure-specific fields
+            if (provider === 'azure') {
+                manifest.provider.region = document.getElementById('azureRegion').value;
+                manifest.provider.subscription_id = document.getElementById('subscriptionId').value;
+                manifest.provider.resource_group = document.getElementById('resourceGroup').value;
+
+                // Azure container config
+                const azureCpu = document.getElementById('azureCpu').value;
+                const azureMemory = document.getElementById('azureMemory').value;
+
+                if (azureCpu || azureMemory) {
+                    manifest.azure = {};
+                    if (azureCpu) manifest.azure.cpu = parseFloat(azureCpu);
+                    if (azureMemory) manifest.azure.memory_gb = parseFloat(azureMemory);
+                }
+
+                // Credentials
+                const azureClientId = document.getElementById('azureClientId').value;
+                const azureClientSecret = document.getElementById('azureClientSecret').value;
+                const azureTenantId = document.getElementById('azureTenantId').value;
+
+                if (azureClientId || azureClientSecret || azureTenantId) {
+                    manifest.provider.credentials = {
+                        azure: {}
+                    };
+                    if (azureClientId) manifest.provider.credentials.azure.client_id = azureClientId;
+                    if (azureClientSecret) manifest.provider.credentials.azure.client_secret = azureClientSecret;
+                    if (azureTenantId) manifest.provider.credentials.azure.tenant_id = azureTenantId;
+                }
+
+                // Health check
+                const azureHealthCheckType = document.getElementById('azureHealthCheckType').value;
+                const azureHealthCheckPath = document.getElementById('azureHealthCheckPath').value;
+                if (azureHealthCheckType || azureHealthCheckPath) {
+                    manifest.health_check = {};
+                    if (azureHealthCheckType) manifest.health_check.type = azureHealthCheckType;
+                    if (azureHealthCheckPath) manifest.health_check.path = azureHealthCheckPath;
                 }
             }
 
