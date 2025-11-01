@@ -84,6 +84,7 @@ brews:
     tap:
       owner: jvreagan
       name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
       # If you want to use a different repo name, change above
       # Otherwise create a repo called homebrew-tap
 
