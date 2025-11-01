@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -418,22 +419,39 @@ func (p *Provider) getRegistryCredentials(ctx context.Context, registryName stri
 }
 
 // buildAndPushImage builds a Docker image from source and pushes it to ACR.
-// For simplicity, this creates a tarball of the source and uses ACR's quick build feature.
+// It uses local Docker to build and push the image.
 func (p *Provider) buildAndPushImage(ctx context.Context, sourcePath, registryName, imageTag string) error {
 	fmt.Printf("Building and pushing image: %s\n", imageTag)
 
-	// For now, we'll assume the source directory contains a Dockerfile
-	// In a production implementation, you would:
-	// 1. Create a tarball of the source
-	// 2. Upload to blob storage
-	// 3. Trigger ACR task to build from the tarball
-	// 4. Wait for build to complete
+	// Get registry credentials for docker login
+	registryLoginServer, registryPassword, err := p.getRegistryCredentials(ctx, registryName)
+	if err != nil {
+		return fmt.Errorf("failed to get registry credentials: %w", err)
+	}
 
-	// This is a simplified implementation
-	// Real implementation would use ACR Tasks API
-	fmt.Println("Note: Using pre-built image or local Docker build")
-	fmt.Println("Full ACR Tasks integration coming soon")
+	// Build the Docker image locally for linux/amd64 platform (ACI requirement)
+	fmt.Printf("Building Docker image from %s...\n", sourcePath)
+	buildCmd := fmt.Sprintf("cd %s && docker build --platform linux/amd64 -t %s .", sourcePath, imageTag)
+	if err := runCommand(buildCmd); err != nil {
+		return fmt.Errorf("failed to build Docker image: %w", err)
+	}
 
+	// Login to ACR
+	fmt.Printf("Logging in to Azure Container Registry: %s\n", registryLoginServer)
+	loginCmd := fmt.Sprintf("echo %s | docker login %s -u %s --password-stdin",
+		registryPassword, registryLoginServer, registryName)
+	if err := runCommand(loginCmd); err != nil {
+		return fmt.Errorf("failed to login to ACR: %w", err)
+	}
+
+	// Push the image to ACR
+	fmt.Printf("Pushing image to ACR...\n")
+	pushCmd := fmt.Sprintf("docker push %s", imageTag)
+	if err := runCommand(pushCmd); err != nil {
+		return fmt.Errorf("failed to push image: %w", err)
+	}
+
+	fmt.Printf("Successfully pushed image: %s\n", imageTag)
 	return nil
 }
 
@@ -668,4 +686,12 @@ func createTarGz(sourceDir, targetFile string) error {
 		_, err = io.Copy(tarWriter, file)
 		return err
 	})
+}
+
+// runCommand executes a shell command and returns any error.
+func runCommand(command string) error {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

@@ -319,8 +319,11 @@ func Load(filename string) (*Manifest, error) {
 		return nil, fmt.Errorf("failed to read manifest file: %w", err)
 	}
 
+	// Expand environment variables in the YAML content
+	expanded := os.ExpandEnv(string(data))
+
 	var manifest Manifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
