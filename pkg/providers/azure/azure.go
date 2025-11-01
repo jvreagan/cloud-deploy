@@ -512,7 +512,7 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 						},
 						Ports: []*armcontainerinstance.ContainerPort{
 							{
-								Port:     to.Ptr[int32](8080),
+								Port:     to.Ptr[int32](80),
 								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
 							},
 						},
@@ -525,7 +525,7 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 				Type: to.Ptr(armcontainerinstance.ContainerGroupIPAddressTypePublic),
 				Ports: []*armcontainerinstance.Port{
 					{
-						Port:     to.Ptr[int32](8080),
+						Port:     to.Ptr[int32](80),
 						Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP),
 					},
 				},

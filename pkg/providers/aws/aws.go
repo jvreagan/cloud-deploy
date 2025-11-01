@@ -382,7 +382,15 @@ func (p *Provider) environmentExists(ctx context.Context, appName, envName strin
 	if err != nil {
 		return false, err
 	}
-	return len(result.Environments) > 0, nil
+
+	// Check if environment exists and is not terminated
+	for _, env := range result.Environments {
+		if *env.EnvironmentName == envName && env.Status != ebtypes.EnvironmentStatusTerminated {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // createEnvironment creates a new Elastic Beanstalk environment.
