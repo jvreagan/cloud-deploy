@@ -17,9 +17,23 @@ func TestGenerateManifestHandler_AWS(t *testing.T) {
 	// Prepare test request
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Provider: ProviderConfig{
-			Name:   "aws",
-			Region: "us-east-2",
+		Providers: []ProviderConfig{
+			{
+				Name:   "aws",
+				Region: "us-east-2",
+				Instance: &InstanceConfig{
+					Type:            "t3.micro",
+					EnvironmentType: "SingleInstance",
+				},
+				HealthCheck: &HealthCheckConfig{
+					Type: "enhanced",
+					Path: "/health",
+				},
+				Monitoring: &MonitoringConfig{
+					EnhancedHealth:    true,
+					CloudWatchMetrics: true,
+				},
+			},
 		},
 		Application: ApplicationConfig{
 			Name:        "test-app",
@@ -37,17 +51,8 @@ func TestGenerateManifestHandler_AWS(t *testing.T) {
 				Path: ".",
 			},
 		},
-		Instance: InstanceConfig{
-			Type:            "t3.micro",
-			EnvironmentType: "SingleInstance",
-		},
-		HealthCheck: HealthCheckConfig{
-			Type: "enhanced",
-			Path: "/health",
-		},
-		Monitoring: MonitoringConfig{
-			EnhancedHealth:    true,
-			CloudWatchMetrics: true,
+		Credentials: &CredentialsManager{
+			Source: "environment",
 		},
 		EnvironmentVars: map[string]string{
 			"NODE_ENV": "production",
@@ -115,7 +120,11 @@ func TestGenerateManifestHandler_AWS(t *testing.T) {
 			t.Errorf("Version mismatch in generated manifest")
 		}
 
-		provider, ok := manifest["provider"].(map[string]interface{})
+		providers, ok := manifest["providers"].([]interface{})
+		if !ok || len(providers) == 0 {
+			t.Fatalf("Providers array not found in manifest")
+		}
+		provider, ok := providers[0].(map[string]interface{})
 		if !ok {
 			t.Fatalf("Provider not found in manifest")
 		}
@@ -132,14 +141,28 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 	publicAccess := true
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Provider: ProviderConfig{
-			Name:             "gcp",
-			Region:           "us-central1",
-			ProjectID:        "test-project",
-			BillingAccountID: "123456-123456-123456",
-			PublicAccess:     &publicAccess,
-			Credentials: CredentialsConfig{
-				ServiceAccountKeyPath: "/path/to/key.json",
+		Providers: []ProviderConfig{
+			{
+				Name:             "gcp",
+				Region:           "us-central1",
+				ProjectID:        "test-project",
+				BillingAccountID: "123456-123456-123456",
+				PublicAccess:     &publicAccess,
+				CloudRun: &CloudRunConfig{
+					CPU:            "2",
+					Memory:         "1Gi",
+					MaxConcurrency: 100,
+					MinInstances:   1,
+					MaxInstances:   10,
+					TimeoutSeconds: 600,
+				},
+				Monitoring: &MonitoringConfig{
+					CloudWatchLogs: &CloudWatchLogsConfig{
+						Enabled:       true,
+						RetentionDays: 7,
+						StreamLogs:    true,
+					},
+				},
 			},
 		},
 		Application: ApplicationConfig{
@@ -156,20 +179,8 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 				Path: ".",
 			},
 		},
-		CloudRun: &CloudRunConfig{
-			CPU:            "2",
-			Memory:         "1Gi",
-			MaxConcurrency: 100,
-			MinInstances:   1,
-			MaxInstances:   10,
-			TimeoutSeconds: 600,
-		},
-		Monitoring: MonitoringConfig{
-			CloudWatchLogs: &CloudWatchLogsConfig{
-				Enabled:       true,
-				RetentionDays: 7,
-				StreamLogs:    true,
-			},
+		Credentials: &CredentialsManager{
+			Source: "environment",
 		},
 		EnvironmentVars: map[string]string{
 			"ENV": "production",
@@ -217,7 +228,11 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 		}
 
 		// Verify GCP-specific fields
-		provider, ok := manifest["provider"].(map[string]interface{})
+		providers, ok := manifest["providers"].([]interface{})
+		if !ok || len(providers) == 0 {
+			t.Fatalf("Providers array not found in manifest")
+		}
+		provider, ok := providers[0].(map[string]interface{})
 		if !ok {
 			t.Fatalf("Provider not found in manifest")
 		}
@@ -229,12 +244,158 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 		}
 
 		// Verify Cloud Run config
-		cloudRun, ok := manifest["cloud_run"].(map[string]interface{})
+		cloudRun, ok := provider["cloud_run"].(map[string]interface{})
 		if !ok {
-			t.Fatalf("Cloud Run config not found in manifest")
+			t.Fatalf("Cloud Run config not found in provider")
 		}
 		if cloudRun["cpu"] != "2" {
 			t.Errorf("CPU mismatch in Cloud Run config")
+		}
+
+		// Cleanup
+		os.Remove(filePath)
+	}
+}
+
+func TestGenerateManifestHandler_MultiCloud(t *testing.T) {
+	// Test multi-cloud deployment with Cloudflare
+	reqData := ManifestRequest{
+		Version: "1.0",
+		Providers: []ProviderConfig{
+			{
+				Name:   "aws",
+				Region: "us-east-1",
+				Instance: &InstanceConfig{
+					Type:            "t3.micro",
+					EnvironmentType: "SingleInstance",
+				},
+			},
+			{
+				Name:      "gcp",
+				Region:    "us-central1",
+				ProjectID: "test-project",
+				CloudRun: &CloudRunConfig{
+					CPU:    "1",
+					Memory: "512Mi",
+				},
+			},
+			{
+				Name:          "azure",
+				Region:        "eastus",
+				ResourceGroup: "test-rg",
+				Container: &AzureContainerConfig{
+					CPU:    1.0,
+					Memory: 1.5,
+				},
+			},
+		},
+		Application: ApplicationConfig{
+			Name:        "test-multicloud-app",
+			Description: "Multi-cloud test application",
+		},
+		Environment: EnvironmentConfig{
+			Name: "test-multicloud-env",
+		},
+		Deployment: DeploymentConfig{
+			Platform: "docker",
+			Source: SourceConfig{
+				Type: "docker",
+				Path: "myapp:latest",
+			},
+		},
+		Credentials: &CredentialsManager{
+			Source: "secrets-manager",
+			Secrets: map[string]string{
+				"aws":        "arn:aws:secretsmanager:us-east-1:123456789012:secret:aws-creds",
+				"gcp":        "arn:aws:secretsmanager:us-east-1:123456789012:secret:gcp-creds",
+				"azure":      "arn:aws:secretsmanager:us-east-1:123456789012:secret:azure-creds",
+				"cloudflare": "arn:aws:secretsmanager:us-east-1:123456789012:secret:cf-creds",
+			},
+		},
+		Cloudflare: &CloudflareConfig{
+			Enabled: true,
+			ZoneID:  "test-zone-id",
+			Domain:  "app.example.com",
+			LoadBalancer: CloudflareLoadBalancer{
+				Name:           "multicloud-lb",
+				SteeringPolicy: "dynamic_latency",
+				Proxied:        true,
+			},
+			Monitors: []CloudflareMonitor{
+				{
+					Name:          "health-check",
+					Type:          "https",
+					Path:          "/health",
+					Interval:      60,
+					Retries:       2,
+					ExpectedCodes: "200",
+				},
+			},
+		},
+	}
+
+	reqBody, err := json.Marshal(reqData)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", bytes.NewBuffer(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	generateManifestHandler(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+		t.Logf("Response body: %s", rr.Body.String())
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if !strings.HasPrefix(response["filename"], "multi-cloud-manifest-") {
+		t.Errorf("Unexpected filename format: %s", response["filename"])
+	}
+
+	// Verify file
+	filePath := response["path"]
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		t.Errorf("Manifest file was not created: %s", filePath)
+	} else {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			t.Fatalf("Failed to read manifest file: %v", err)
+		}
+
+		var manifest map[string]interface{}
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
+			t.Fatalf("Generated manifest is not valid YAML: %v", err)
+		}
+
+		// Verify multi-cloud setup
+		providers, ok := manifest["providers"].([]interface{})
+		if !ok || len(providers) != 3 {
+			t.Fatalf("Expected 3 providers, got %d", len(providers))
+		}
+
+		// Verify Cloudflare config
+		cloudflare, ok := manifest["cloudflare"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("Cloudflare config not found in manifest")
+		}
+		if cloudflare["domain"] != "app.example.com" {
+			t.Errorf("Cloudflare domain mismatch")
+		}
+
+		// Verify credentials
+		credentials, ok := manifest["credentials"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("Credentials config not found in manifest")
+		}
+		if credentials["source"] != "secrets-manager" {
+			t.Errorf("Credentials source mismatch")
 		}
 
 		// Cleanup
@@ -268,9 +429,11 @@ func TestGenerateManifestHandler_InvalidJSON(t *testing.T) {
 func TestGenerateManifestHandler_MinimalConfig(t *testing.T) {
 	// Test with minimal required fields only
 	reqData := ManifestRequest{
-		Provider: ProviderConfig{
-			Name:   "aws",
-			Region: "us-east-1",
+		Providers: []ProviderConfig{
+			{
+				Name:   "aws",
+				Region: "us-east-1",
+			},
 		},
 		Application: ApplicationConfig{
 			Name: "minimal-app",
@@ -283,6 +446,9 @@ func TestGenerateManifestHandler_MinimalConfig(t *testing.T) {
 				Type: "local",
 				Path: ".",
 			},
+		},
+		Credentials: &CredentialsManager{
+			Source: "environment",
 		},
 	}
 
@@ -315,9 +481,11 @@ func TestManifestYAMLFormat(t *testing.T) {
 	// Test that generated YAML is valid and well-formatted
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Provider: ProviderConfig{
-			Name:   "aws",
-			Region: "us-west-2",
+		Providers: []ProviderConfig{
+			{
+				Name:   "aws",
+				Region: "us-west-2",
+			},
 		},
 		Application: ApplicationConfig{
 			Name: "format-test",
@@ -346,7 +514,7 @@ func TestManifestYAMLFormat(t *testing.T) {
 	}
 
 	// Verify data integrity
-	if roundTrip.Provider.Name != reqData.Provider.Name {
+	if len(roundTrip.Providers) == 0 || roundTrip.Providers[0].Name != reqData.Providers[0].Name {
 		t.Errorf("Provider name mismatch after round-trip")
 	}
 	if roundTrip.Application.Name != reqData.Application.Name {
