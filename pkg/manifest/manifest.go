@@ -75,6 +75,18 @@ type Manifest struct {
 
 	// Tags to apply to cloud resources - optional
 	Tags map[string]string `yaml:"tags,omitempty"`
+
+	// Ports to expose from the container - optional
+	Ports []PortMapping `yaml:"ports,omitempty"`
+}
+
+// PortMapping defines a container port mapping.
+type PortMapping struct {
+	// ContainerPort is the port number inside the container
+	ContainerPort int `yaml:"container"`
+
+	// HostPort is the port number to expose on the host (optional, defaults to ContainerPort)
+	HostPort int `yaml:"host,omitempty"`
 }
 
 // ProviderConfig specifies which cloud provider to use and how to authenticate.

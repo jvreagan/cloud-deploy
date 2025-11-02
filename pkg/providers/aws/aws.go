@@ -158,7 +158,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	versionLabel := fmt.Sprintf("v-%d", time.Now().Unix())
 	s3Key := fmt.Sprintf("%s/%s.zip", m.Application.Name, versionLabel)
 
-	if err := p.uploadDockerrun(ctx, imageURI, bucketName, s3Key); err != nil {
+	if err := p.uploadDockerrun(ctx, m, imageURI, bucketName, s3Key); err != nil {
 		return nil, fmt.Errorf("failed to upload Dockerrun.aws.json: %w", err)
 	}
 
@@ -403,8 +403,33 @@ func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3K
 }
 
 // uploadDockerrun creates a Dockerrun.aws.json file for the ECR image and uploads it to S3.
-func (p *Provider) uploadDockerrun(ctx context.Context, imageURI, bucketName, s3Key string) error {
+func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, imageURI, bucketName, s3Key string) error {
 	fmt.Println("Creating Dockerrun.aws.json...")
+
+	// Build port mappings from manifest
+	var ports []map[string]interface{}
+	if len(m.Ports) > 0 {
+		for _, port := range m.Ports {
+			hostPort := port.HostPort
+			if hostPort == 0 {
+				hostPort = port.ContainerPort
+			}
+			ports = append(ports, map[string]interface{}{
+				"ContainerPort": port.ContainerPort,
+				"HostPort":      hostPort,
+			})
+		}
+		fmt.Printf("Using ports from manifest: %v\n", m.Ports)
+	} else {
+		// Default to port 80 if no ports specified
+		ports = []map[string]interface{}{
+			{
+				"ContainerPort": 80,
+				"HostPort":      80,
+			},
+		}
+		fmt.Println("No ports specified in manifest, using default port 80")
+	}
 
 	// Create Dockerrun.aws.json structure
 	dockerrun := map[string]interface{}{
@@ -413,16 +438,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, imageURI, bucketName, s3
 			"Name":   imageURI,
 			"Update": "true",
 		},
-		"Ports": []map[string]interface{}{
-			{
-				"ContainerPort": 80,
-				"HostPort":      80,
-			},
-			{
-				"ContainerPort": 443,
-				"HostPort":      443,
-			},
-		},
+		"Ports": ports,
 	}
 
 	// Marshal to JSON
@@ -614,6 +630,46 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 				OptionName: aws.String("HealthStreamingEnabled"),
 				Value:      aws.String("true"),
 			})
+		}
+	}
+
+	// Configure load balancer listeners for each port in manifest
+	if len(m.Ports) > 0 {
+		for _, port := range m.Ports {
+			instancePort := port.HostPort
+			if instancePort == 0 {
+				instancePort = port.ContainerPort
+			}
+
+			// Determine protocol based on port number
+			// Use TCP passthrough for HTTPS (443) to preserve self-signed certs
+			protocol := "HTTP"
+			instanceProtocol := "HTTP"
+			if port.ContainerPort == 443 {
+				protocol = "TCP"
+				instanceProtocol = "TCP"
+			}
+
+			// Configure load balancer listener
+			settings = append(settings,
+				ebtypes.ConfigurationOptionSetting{
+					Namespace:  aws.String(fmt.Sprintf("aws:elb:listener:%d", port.ContainerPort)),
+					OptionName: aws.String("ListenerProtocol"),
+					Value:      aws.String(protocol),
+				},
+				ebtypes.ConfigurationOptionSetting{
+					Namespace:  aws.String(fmt.Sprintf("aws:elb:listener:%d", port.ContainerPort)),
+					OptionName: aws.String("InstancePort"),
+					Value:      aws.String(fmt.Sprintf("%d", instancePort)),
+				},
+				ebtypes.ConfigurationOptionSetting{
+					Namespace:  aws.String(fmt.Sprintf("aws:elb:listener:%d", port.ContainerPort)),
+					OptionName: aws.String("InstanceProtocol"),
+					Value:      aws.String(instanceProtocol),
+				},
+			)
+			fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s)\n",
+				port.ContainerPort, protocol, instancePort, instanceProtocol)
 		}
 	}
 
