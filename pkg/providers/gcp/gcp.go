@@ -42,14 +42,19 @@ type Provider struct {
 	organizationID  string
 }
 
-// New creates a new GCP provider instance with the specified configuration.
-// All authentication is done via service account credentials in the manifest.
+// New creates a new GCP provider instance with the specified configuration and manifest.
+// Credentials can be loaded from:
+// 1. Vault (if credentials.source == "vault")
+// 2. Environment variables (if credentials.source == "environment")
+// 3. Manifest (if credentials contain service_account_key)
+// 4. Default application credentials (fallback)
+//
 // The provider will automatically:
 // - Create the project if it doesn't exist
 // - Link the billing account
 // - Enable required APIs
 // - Deploy the application
-func New(ctx context.Context, config *manifest.ProviderConfig) (*Provider, error) {
+func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manifest) (*Provider, error) {
 	projectID := config.ProjectID
 	if projectID == "" {
 		return nil, fmt.Errorf("provider.project_id is required in manifest for GCP deployments")
@@ -63,10 +68,29 @@ func New(ctx context.Context, config *manifest.ProviderConfig) (*Provider, error
 
 	fmt.Printf("Initializing GCP provider for project: %s\n", projectID)
 
-	// Load service account credentials
-	credOption, err := loadCredentials(config.Credentials)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load credentials: %w", err)
+	// Check if credentials should be loaded from Vault
+	var credOption option.ClientOption
+	var err error
+
+	if config.Credentials != nil && config.Credentials.Source == "vault" {
+		fmt.Println("Loading GCP credentials from Vault...")
+
+		// Get credentials from Vault using manifest helper
+		vaultCreds, err := m.GetCloudCredentials(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load GCP credentials from Vault: %w", err)
+		}
+
+		if vaultCreds != nil && vaultCreds.GCP.ServiceAccountKey != "" {
+			fmt.Println("✅ Successfully loaded GCP credentials from Vault")
+			credOption = option.WithCredentialsJSON([]byte(vaultCreds.GCP.ServiceAccountKey))
+		}
+	} else {
+		// Load service account credentials from manifest (existing behavior)
+		credOption, err = loadCredentials(config.Credentials)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load credentials: %w", err)
+		}
 	}
 
 	// Initialize Cloud Resource Manager client (for project management)
@@ -188,7 +212,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 1: Push image to GCR (Artifact Registry)
-	fmt.Println("\n=== Pushing image to GCR ===")
+	fmt.Println("\n=== Distributing image to GCR ===")
 
 	// Get credentials JSON for GCR authentication
 	var credsJSON string
@@ -196,7 +220,6 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		if m.Provider.Credentials.ServiceAccountKeyJSON != "" {
 			credsJSON = m.Provider.Credentials.ServiceAccountKeyJSON
 		}
-		// Note: If using file path, gcloud will handle auth
 	}
 
 	repositoryName := m.Application.Name
@@ -205,20 +228,16 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		return nil, fmt.Errorf("failed to create GCR registry handler: %w", err)
 	}
 
-	if err := gcrRegistry.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("failed to authenticate with GCR: %w", err)
-	}
+	// Use Distributor to push image to registry
+	distributor := registry.NewDistributor(m.Image)
+	distributor.AddRegistry(gcrRegistry)
 
-	taggedImage, err := gcrRegistry.TagImage(ctx, m.Image)
+	imageURIs, err := distributor.Distribute(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to tag image for GCR: %w", err)
+		return nil, fmt.Errorf("failed to distribute image to GCR: %w", err)
 	}
 
-	if err := gcrRegistry.PushImage(ctx, taggedImage); err != nil {
-		return nil, fmt.Errorf("failed to push image to GCR: %w", err)
-	}
-
-	imageURI := gcrRegistry.GetImageURI()
+	imageURI := imageURIs[gcrRegistry.GetRegistryURL()]
 	fmt.Printf("Successfully pushed image to GCR: %s\n", imageURI)
 
 	// Step 2: Deploy to Cloud Run

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 )
@@ -41,11 +43,19 @@ func (g *GCRRegistry) GetImageURI() string {
 	return g.imageURI
 }
 
-// Authenticate authenticates Docker with GCR
-func (g *GCRRegistry) Authenticate(ctx context.Context) error {
+// GetImageReference returns the full image reference for GCR
+func (g *GCRRegistry) GetImageReference() string {
+	return g.imageURI
+}
+
+// GetAuthenticator returns the authenticator for GCR using service account credentials
+func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator, error) {
 	// Build registry URL
 	// Format: REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY_NAME
 	g.registryURL = fmt.Sprintf("%s-docker.pkg.dev/%s/%s", g.region, g.projectID, g.repositoryName)
+
+	// Build image URI using repository name as image
+	g.imageURI = fmt.Sprintf("%s/%s:%s", g.registryURL, g.repositoryName, g.imageTag)
 
 	// Create Artifact Registry client
 	var client *artifactregistry.Service
@@ -57,7 +67,7 @@ func (g *GCRRegistry) Authenticate(ctx context.Context) error {
 		client, err = artifactregistry.NewService(ctx)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to create Artifact Registry client: %w", err)
+		return nil, fmt.Errorf("failed to create Artifact Registry client: %w", err)
 	}
 
 	// Create repository if it doesn't exist
@@ -84,7 +94,7 @@ func (g *GCRRegistry) Authenticate(ctx context.Context) error {
 		if err != nil {
 			// Ignore if already exists
 			if !strings.Contains(err.Error(), "already exists") {
-				return fmt.Errorf("failed to create Artifact Registry repository: %w", err)
+				return nil, fmt.Errorf("failed to create Artifact Registry repository: %w", err)
 			}
 			fmt.Printf("Repository %s already exists\n", g.repositoryName)
 		} else {
@@ -94,47 +104,28 @@ func (g *GCRRegistry) Authenticate(ctx context.Context) error {
 		fmt.Printf("Artifact Registry repository %s already exists\n", g.repositoryName)
 	}
 
-	// Configure Docker to use gcloud credentials
-	fmt.Println("Configuring Docker authentication for GCR...")
-
-	// Use gcloud auth configure-docker for the region
-	registryHost := fmt.Sprintf("%s-docker.pkg.dev", g.region)
-	_, err = execCommand(ctx, "gcloud", "auth", "configure-docker", registryHost, "--quiet")
+	// Get OAuth2 token source from service account credentials
+	var creds *google.Credentials
+	if g.credentialsJSON != "" {
+		creds, err = google.CredentialsFromJSON(ctx, []byte(g.credentialsJSON), "https://www.googleapis.com/auth/cloud-platform")
+	} else {
+		creds, err = google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	}
 	if err != nil {
-		return fmt.Errorf("failed to configure Docker for GCR: %w", err)
+		return nil, fmt.Errorf("failed to get Google credentials: %w", err)
 	}
 
-	fmt.Println("Successfully authenticated with GCR")
-	return nil
-}
-
-// TagImage tags the source image for GCR
-func (g *GCRRegistry) TagImage(ctx context.Context, sourceImage string) (string, error) {
-	// Extract image name from source
-	parts := strings.Split(sourceImage, "/")
-	imageName := parts[len(parts)-1]
-
-	// Remove tag if present
-	if idx := strings.Index(imageName, ":"); idx != -1 {
-		imageName = imageName[:idx]
+	// Get an OAuth2 token
+	token, err := creds.TokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth2 token: %w", err)
 	}
 
-	// Build target image URI
-	// Format: REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY_NAME/IMAGE_NAME:TAG
-	g.imageURI = fmt.Sprintf("%s/%s:%s", g.registryURL, imageName, g.imageTag)
+	fmt.Println("Successfully retrieved GCR OAuth2 credentials")
 
-	// Tag the image
-	if err := dockerTag(ctx, sourceImage, g.imageURI); err != nil {
-		return "", fmt.Errorf("failed to tag image for GCR: %w", err)
-	}
-
-	return g.imageURI, nil
-}
-
-// PushImage pushes the image to GCR
-func (g *GCRRegistry) PushImage(ctx context.Context, taggedImage string) error {
-	if err := dockerPush(ctx, taggedImage); err != nil {
-		return fmt.Errorf("failed to push image to GCR: %w", err)
-	}
-	return nil
+	// Return authenticator with oauth2accesstoken as username and token as password
+	return &authn.Basic{
+		Username: "oauth2accesstoken",
+		Password: token.AccessToken,
+	}, nil
 }

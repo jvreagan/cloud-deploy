@@ -5,8 +5,11 @@ package registry
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // Registry represents a cloud provider container registry
@@ -14,16 +17,13 @@ type Registry interface {
 	// GetRegistryURL returns the full registry URL for the image
 	GetRegistryURL() string
 
-	// Authenticate authenticates with the registry
-	Authenticate(ctx context.Context) error
+	// GetAuthenticator returns the authenticator for this registry
+	GetAuthenticator(ctx context.Context) (authn.Authenticator, error)
 
-	// TagImage tags a local Docker image for the registry
-	TagImage(ctx context.Context, sourceImage string) (string, error)
+	// GetImageReference returns the full image reference (with tag) for the registry
+	GetImageReference() string
 
-	// PushImage pushes the tagged image to the registry
-	PushImage(ctx context.Context, taggedImage string) error
-
-	// GetImageURI returns the full image URI in the registry
+	// GetImageURI returns the full image URI in the registry (same as GetImageReference)
 	GetImageURI() string
 }
 
@@ -46,30 +46,44 @@ func (d *Distributor) AddRegistry(registry Registry) {
 	d.registries = append(d.registries, registry)
 }
 
-// Distribute authenticates, tags, and pushes the image to all registered registries
+// Distribute reads the image from Docker daemon and pushes it to all registered registries
 func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error) {
 	imageURIs := make(map[string]string)
 
+	// Load image from Docker daemon once
+	fmt.Printf("Loading image %s from Docker daemon...\n", d.sourceImage)
+	sourceRef, err := name.ParseReference(d.sourceImage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse source image reference: %w", err)
+	}
+
+	img, err := daemon.Image(sourceRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load image from Docker daemon: %w", err)
+	}
+	fmt.Println("Image loaded successfully")
+
+	// Distribute to each registry
 	for _, registry := range d.registries {
 		fmt.Printf("\n=== Distributing to %s ===\n", registry.GetRegistryURL())
 
-		// Authenticate
-		fmt.Println("Authenticating with registry...")
-		if err := registry.Authenticate(ctx); err != nil {
-			return nil, fmt.Errorf("failed to authenticate with registry %s: %w", registry.GetRegistryURL(), err)
-		}
-
-		// Tag image
-		fmt.Printf("Tagging image %s for registry...\n", d.sourceImage)
-		taggedImage, err := registry.TagImage(ctx, d.sourceImage)
+		// Get authenticator
+		fmt.Println("Preparing authentication...")
+		auth, err := registry.GetAuthenticator(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to tag image for registry %s: %w", registry.GetRegistryURL(), err)
+			return nil, fmt.Errorf("failed to get authenticator for registry %s: %w", registry.GetRegistryURL(), err)
 		}
-		fmt.Printf("Tagged as: %s\n", taggedImage)
 
-		// Push image
+		// Parse target reference
+		targetRef, err := name.ParseReference(registry.GetImageReference())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse target image reference: %w", err)
+		}
+		fmt.Printf("Target: %s\n", targetRef.Name())
+
+		// Push image to registry using OCI Distribution API
 		fmt.Printf("Pushing image to %s...\n", registry.GetRegistryURL())
-		if err := registry.PushImage(ctx, taggedImage); err != nil {
+		if err := remote.Write(targetRef, img, remote.WithAuth(auth), remote.WithContext(ctx)); err != nil {
 			return nil, fmt.Errorf("failed to push image to registry %s: %w", registry.GetRegistryURL(), err)
 		}
 		fmt.Printf("Successfully pushed to %s\n", registry.GetRegistryURL())
@@ -78,28 +92,4 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 	}
 
 	return imageURIs, nil
-}
-
-// execCommand executes a shell command and returns the output
-func execCommand(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("command failed: %s\nOutput: %s", err, string(output))
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// dockerTag tags a Docker image
-func dockerTag(ctx context.Context, sourceImage, targetImage string) error {
-	fmt.Printf("Running: docker tag %s %s\n", sourceImage, targetImage)
-	_, err := execCommand(ctx, "docker", "tag", sourceImage, targetImage)
-	return err
-}
-
-// dockerPush pushes a Docker image to a registry
-func dockerPush(ctx context.Context, image string) error {
-	fmt.Printf("Running: docker push %s\n", image)
-	_, err := execCommand(ctx, "docker", "push", image)
-	return err
 }

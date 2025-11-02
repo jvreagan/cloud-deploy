@@ -1,0 +1,63 @@
+version: "1.0"
+
+# Docker image to deploy
+image: "my-app:latest"
+
+# HashiCorp Vault configuration for secret management
+vault:
+  # Vault server address
+  address: "http://127.0.0.1:8200"
+
+  # Authentication method
+  auth:
+    method: token
+    # Token from environment variable (set: export VAULT_TOKEN=myroot)
+    token: "${VAULT_TOKEN}"
+
+# Secrets to fetch from Vault and inject as environment variables
+secrets:
+  - name: DATABASE_URL
+    vault_path: secret/data/myapp/database
+    vault_key: url
+
+  - name: STRIPE_API_KEY
+    vault_path: secret/data/myapp/stripe
+    vault_key: api_key
+
+  - name: JWT_SECRET
+    vault_path: secret/data/myapp/jwt
+    vault_key: signing_key
+
+# Regular environment variables (non-secret)
+environment_variables:
+  ENV: production
+  LOG_LEVEL: info
+  APP_NAME: my-application
+
+# AWS Provider Configuration
+provider:
+  name: aws
+  region: us-east-2
+
+application:
+  name: vault-demo-app
+  description: "Demo application using Vault for secrets"
+
+environment:
+  name: vault-demo-env
+  cname: vault-demo
+
+deployment:
+  platform: docker
+  solution_stack: "64bit Amazon Linux 2023 v4.7.2 running Docker"
+  source:
+    type: local
+    path: "."
+
+instance:
+  type: t3.micro
+  environment_type: SingleInstance
+
+health_check:
+  type: enhanced
+  path: /health

@@ -46,11 +46,13 @@ type Provider struct {
 //   - location: Azure region (e.g., "eastus", "westus2")
 //   - resourceGroup: Resource group name (will be created if it doesn't exist)
 //   - credentials: Azure credentials configuration
+//   - m: Full manifest (for Vault credential loading)
 //
 // Authentication methods:
-//  1. Service Principal: Provide client_id, client_secret, tenant_id
-//  2. Default Azure credentials: Leave credentials nil to use Azure CLI/Managed Identity
-func New(ctx context.Context, subscriptionID, location, resourceGroup string, credentials *manifest.AzureCredentialsConfig) (*Provider, error) {
+//  1. Vault: Load from HashiCorp Vault (if credentials.source == "vault")
+//  2. Service Principal: Provide client_id, client_secret, tenant_id
+//  3. Default Azure credentials: Leave credentials nil to use Azure CLI/Managed Identity
+func New(ctx context.Context, subscriptionID, location, resourceGroup string, credentials *manifest.AzureCredentialsConfig, credConfig *manifest.CredentialsConfig, m *manifest.Manifest) (*Provider, error) {
 	if subscriptionID == "" {
 		return nil, fmt.Errorf("subscription ID is required")
 	}
@@ -64,9 +66,31 @@ func New(ctx context.Context, subscriptionID, location, resourceGroup string, cr
 	var cred azcore.TokenCredential
 	var err error
 
-	// Authenticate based on credentials provided
-	if credentials != nil && credentials.ClientID != "" && credentials.ClientSecret != "" && credentials.TenantID != "" {
-		fmt.Println("Using Service Principal authentication")
+	// Check if credentials should be loaded from Vault
+	if credConfig != nil && credConfig.Source == "vault" {
+		fmt.Println("Loading Azure credentials from Vault...")
+
+		// Get credentials from Vault using manifest helper
+		vaultCreds, err := m.GetCloudCredentials(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load Azure credentials from Vault: %w", err)
+		}
+
+		if vaultCreds != nil {
+			fmt.Println("✅ Successfully loaded Azure credentials from Vault")
+			cred, err = azidentity.NewClientSecretCredential(
+				vaultCreds.Azure.TenantID,
+				vaultCreds.Azure.ClientID,
+				vaultCreds.Azure.ClientSecret,
+				nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create service principal credential from Vault: %w", err)
+			}
+		}
+	} else if credentials != nil && credentials.ClientID != "" && credentials.ClientSecret != "" && credentials.TenantID != "" {
+		// Authenticate based on credentials provided in manifest
+		fmt.Println("Using Service Principal authentication from manifest")
 		cred, err = azidentity.NewClientSecretCredential(
 			credentials.TenantID,
 			credentials.ClientID,
@@ -155,26 +179,22 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 3: Push image to ACR
-	fmt.Println("\n=== Pushing image to ACR ===")
+	fmt.Println("\n=== Distributing image to ACR ===")
 	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, "latest")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ACR registry handler: %w", err)
 	}
 
-	if err := acrRegistry.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("failed to authenticate with ACR: %w", err)
-	}
+	// Use Distributor to push image to registry
+	distributor := registry.NewDistributor(m.Image)
+	distributor.AddRegistry(acrRegistry)
 
-	taggedImage, err := acrRegistry.TagImage(ctx, m.Image)
+	imageURIs, err := distributor.Distribute(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to tag image for ACR: %w", err)
+		return nil, fmt.Errorf("failed to distribute image to ACR: %w", err)
 	}
 
-	if err := acrRegistry.PushImage(ctx, taggedImage); err != nil {
-		return nil, fmt.Errorf("failed to push image to ACR: %w", err)
-	}
-
-	imageURI := acrRegistry.GetImageURI()
+	imageURI := imageURIs[acrRegistry.GetRegistryURL()]
 	fmt.Printf("Successfully pushed image to ACR: %s\n", imageURI)
 
 	// Step 4: Deploy to Azure Container Instances

@@ -34,17 +34,39 @@ type Provider struct {
 	config   aws.Config
 }
 
-// New creates a new AWS provider instance with the specified region and optional credentials.
-// If credentials are provided in the manifest, they will be used.
-// Otherwise, it falls back to the AWS SDK default credential chain (environment variables,
-// shared credentials file, or IAM role).
-func New(ctx context.Context, region string, creds *manifest.CredentialsConfig) (*Provider, error) {
+// New creates a new AWS provider instance with the specified region, credentials config, and manifest.
+// Credentials can be loaded from:
+// 1. Vault (if credentials.source == "vault")
+// 2. Environment variables (if credentials.source == "environment")
+// 3. Manifest (if credentials contain access_key_id and secret_access_key)
+// 4. AWS SDK default credential chain (default)
+func New(ctx context.Context, region string, creds *manifest.CredentialsConfig, m *manifest.Manifest) (*Provider, error) {
 	var cfg aws.Config
 	var err error
 
-	// If credentials are provided in the manifest, use them
-	if creds != nil && creds.AccessKeyID != "" && creds.SecretAccessKey != "" {
-		fmt.Println("Using credentials from manifest")
+	// Check if credentials should be loaded from Vault
+	if creds != nil && creds.Source == "vault" {
+		fmt.Println("Loading AWS credentials from Vault...")
+
+		// Get credentials from Vault using manifest helper
+		vaultCreds, err := m.GetCloudCredentials(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS credentials from Vault: %w", err)
+		}
+
+		if vaultCreds != nil {
+			cfg, err = config.LoadDefaultConfig(ctx,
+				config.WithRegion(region),
+				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+					vaultCreds.AWS.AccessKeyID,
+					vaultCreds.AWS.SecretAccessKey,
+					vaultCreds.AWS.SessionToken,
+				)),
+			)
+		}
+	} else if creds != nil && creds.AccessKeyID != "" && creds.SecretAccessKey != "" {
+		// Credentials provided directly in manifest
+		fmt.Println("Using AWS credentials from manifest")
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(region),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
@@ -108,26 +130,22 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 2: Push image to ECR
-	fmt.Println("\n=== Pushing image to ECR ===")
+	fmt.Println("\n=== Distributing image to ECR ===")
 	ecrRegistry, err := registry.NewECRRegistry(p.config, p.region, m.Application.Name, "latest")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ECR registry: %w", err)
 	}
 
-	if err := ecrRegistry.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("failed to authenticate with ECR: %w", err)
-	}
+	// Use Distributor to push image to registry
+	distributor := registry.NewDistributor(m.Image)
+	distributor.AddRegistry(ecrRegistry)
 
-	taggedImage, err := ecrRegistry.TagImage(ctx, m.Image)
+	imageURIs, err := distributor.Distribute(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to tag image for ECR: %w", err)
+		return nil, fmt.Errorf("failed to distribute image to ECR: %w", err)
 	}
 
-	if err := ecrRegistry.PushImage(ctx, taggedImage); err != nil {
-		return nil, fmt.Errorf("failed to push image to ECR: %w", err)
-	}
-
-	imageURI := ecrRegistry.GetImageURI()
+	imageURI := imageURIs[ecrRegistry.GetRegistryURL()]
 	fmt.Printf("Image pushed to ECR: %s\n", imageURI)
 
 	// Step 3: Create S3 bucket for application versions

@@ -96,15 +96,15 @@ type Provider interface {
 func Factory(ctx context.Context, m *manifest.Manifest) (Provider, error) {
 	switch m.Provider.Name {
 	case "aws":
-		return aws.New(ctx, m.Provider.Region, m.Provider.Credentials)
+		return aws.New(ctx, m.Provider.Region, m.Provider.Credentials, m)
 	case "gcp":
-		return gcp.New(ctx, &m.Provider)
+		return gcp.New(ctx, &m.Provider, m)
 	case "azure":
 		var azureCreds *manifest.AzureCredentialsConfig
 		if m.Provider.Credentials != nil && m.Provider.Credentials.Azure != nil {
 			azureCreds = m.Provider.Credentials.Azure
 		}
-		return azure.New(ctx, m.Provider.SubscriptionID, m.Provider.Region, m.Provider.ResourceGroup, azureCreds)
+		return azure.New(ctx, m.Provider.SubscriptionID, m.Provider.Region, m.Provider.ResourceGroup, azureCreds, m.Provider.Credentials, m)
 	case "oci":
 		return nil, fmt.Errorf("OCI provider not yet implemented")
 	default:

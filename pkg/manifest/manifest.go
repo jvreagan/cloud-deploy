@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/jvreagan/cloud-deploy/pkg/credentials"
 	"github.com/jvreagan/cloud-deploy/pkg/vault"
 	"gopkg.in/yaml.v3"
 )
@@ -111,22 +112,28 @@ type ProviderConfig struct {
 }
 
 // CredentialsConfig contains cloud provider credentials.
-// Note: It's recommended to use CLI credentials or environment variables
-// instead of storing credentials in the manifest.
+// Credentials can be provided directly, via environment variables, or from Vault.
 type CredentialsConfig struct {
-	// AWS: Access key ID
+	// Source of credentials: "manifest", "environment", "vault", "cli" (default: "cli")
+	// - "manifest": Use credentials specified directly in this manifest
+	// - "environment": Use environment variables (AWS_ACCESS_KEY_ID, etc.)
+	// - "vault": Fetch from HashiCorp Vault using paths configured in Vault section
+	// - "cli": Use cloud provider CLI credentials (default)
+	Source string `yaml:"source,omitempty"`
+
+	// AWS: Access key ID (used when Source is "manifest")
 	AccessKeyID string `yaml:"access_key_id,omitempty"`
 
-	// AWS: Secret access key
+	// AWS: Secret access key (used when Source is "manifest")
 	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
 
-	// GCP: Path to service account JSON key file
+	// GCP: Path to service account JSON key file (used when Source is "manifest")
 	ServiceAccountKeyPath string `yaml:"service_account_key_path,omitempty"`
 
-	// GCP: Or provide service account JSON content directly (base64 encoded or raw JSON string)
+	// GCP: Or provide service account JSON content directly (used when Source is "manifest")
 	ServiceAccountKeyJSON string `yaml:"service_account_key_json,omitempty"`
 
-	// Azure: Service Principal credentials (optional, can use Azure CLI credentials)
+	// Azure: Service Principal credentials (used when Source is "manifest")
 	Azure *AzureCredentialsConfig `yaml:"azure,omitempty"`
 }
 
@@ -445,6 +452,64 @@ func (m *Manifest) FetchVaultSecrets(ctx context.Context) (map[string]string, er
 
 	fmt.Printf("Successfully retrieved %d secrets from Vault\n", len(secrets))
 	return secrets, nil
+}
+
+// GetCloudCredentials retrieves cloud provider credentials based on the configured source.
+// Supports: CLI credentials (default), environment variables, Vault, or manifest.
+//
+// Returns credentials for the specified provider using the configured source.
+func (m *Manifest) GetCloudCredentials(ctx context.Context) (*credentials.ProviderCredentials, error) {
+	// Create credentials manager
+	credMgr := &credentials.Manager{}
+
+	// Determine credential source
+	source := "cli" // default
+	if m.Provider.Credentials != nil && m.Provider.Credentials.Source != "" {
+		source = m.Provider.Credentials.Source
+	}
+
+	switch source {
+	case "vault":
+		// Use Vault to fetch credentials
+		if m.Vault == nil {
+			return nil, fmt.Errorf("vault configuration required when credentials.source is 'vault'")
+		}
+
+		// Configure credentials manager to use Vault
+		credMgr.Source = "vault"
+		credMgr.VaultConfig = &vault.Config{
+			Address:       m.Vault.Address,
+			TLSSkipVerify: m.Vault.TLSSkipVerify,
+			Auth: vault.AuthConfig{
+				Method:   m.Vault.Auth.Method,
+				Token:    expandEnvVars(m.Vault.Auth.Token),
+				RoleID:   expandEnvVars(m.Vault.Auth.RoleID),
+				SecretID: expandEnvVars(m.Vault.Auth.SecretID),
+				Role:     m.Vault.Auth.Role,
+			},
+		}
+
+		fmt.Printf("📦 Loading %s credentials from Vault...\n", m.Provider.Name)
+		return credMgr.GetCredentials(ctx, m.Provider.Name)
+
+	case "environment":
+		// Use environment variables
+		credMgr.Source = "environment"
+		fmt.Printf("📦 Loading %s credentials from environment variables...\n", m.Provider.Name)
+		return credMgr.GetCredentials(ctx, m.Provider.Name)
+
+	case "manifest":
+		// Credentials are directly in the manifest (return nil to use default behavior)
+		fmt.Printf("📦 Using %s credentials from manifest...\n", m.Provider.Name)
+		return nil, nil
+
+	case "cli":
+		fallthrough
+	default:
+		// Use cloud provider CLI credentials (default behavior)
+		fmt.Printf("📦 Using %s credentials from CLI...\n", m.Provider.Name)
+		return nil, nil
+	}
 }
 
 // expandEnvVars expands environment variable references in the format ${VAR_NAME}.
