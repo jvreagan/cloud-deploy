@@ -452,7 +452,6 @@ func (p *Provider) getRegistryCredentials(ctx context.Context, registryName stri
 	return loginServer, password, nil
 }
 
-
 // deployContainerGroup creates or updates an Azure Container Instance.
 func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifest, name, image, registryName, registryPassword string) (string, error) {
 	fmt.Printf("Deploying container group: %s\n", name)
@@ -512,10 +511,10 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 							{
 								Port:     to.Ptr[int32](80),
 								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
-						},
-						{
-							Port:     to.Ptr[int32](443),
-							Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
+							},
+							{
+								Port:     to.Ptr[int32](443),
+								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
 							},
 						},
 						EnvironmentVariables: envVars,
@@ -693,4 +692,3 @@ func createTarGz(sourceDir, targetFile string) error {
 		return err
 	})
 }
-

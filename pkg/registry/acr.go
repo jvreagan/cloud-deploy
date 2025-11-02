@@ -12,15 +12,15 @@ import (
 
 // ACRRegistry represents an Azure Container Registry
 type ACRRegistry struct {
-	cred             azcore.TokenCredential
-	subscriptionID   string
-	resourceGroup    string
-	registryName     string
-	location         string
-	imageTag         string
-	registryURL      string
-	imageURI         string
-	loginServer      string
+	cred           azcore.TokenCredential
+	subscriptionID string
+	resourceGroup  string
+	registryName   string
+	location       string
+	imageTag       string
+	registryURL    string
+	imageURI       string
+	loginServer    string
 }
 
 // NewACRRegistry creates a new ACR registry handler

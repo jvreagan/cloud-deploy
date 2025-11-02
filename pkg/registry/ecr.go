@@ -14,13 +14,13 @@ import (
 
 // ECRRegistry represents an AWS Elastic Container Registry
 type ECRRegistry struct {
-	config        aws.Config
-	region        string
+	config         aws.Config
+	region         string
 	repositoryName string
-	accountID     string
-	imageTag      string
-	registryURL   string
-	imageURI      string
+	accountID      string
+	imageTag       string
+	registryURL    string
+	imageURI       string
 }
 
 // NewECRRegistry creates a new ECR registry handler

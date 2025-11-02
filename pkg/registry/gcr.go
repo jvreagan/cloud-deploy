@@ -7,18 +7,18 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
+	"google.golang.org/api/option"
 )
 
 // GCRRegistry represents a Google Container Registry (Artifact Registry)
 type GCRRegistry struct {
-	projectID      string
-	region         string
-	repositoryName string
-	imageTag       string
-	registryURL    string
-	imageURI       string
+	projectID       string
+	region          string
+	repositoryName  string
+	imageTag        string
+	registryURL     string
+	imageURI        string
 	credentialsJSON string
 }
 
