@@ -1,0 +1,155 @@
+name: GitHub Traffic Tracker
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  track-traffic:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: traffic-stats
+          # Create branch if it doesn't exist
+          fetch-depth: 0
+
+      - name: Create traffic-stats branch if needed
+        run: |
+          git checkout traffic-stats 2>/dev/null || git checkout -b traffic-stats
+          mkdir -p traffic-data
+
+      - name: Collect traffic data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          #!/bin/bash
+          set -e
+
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # List of repositories to track
+          REPOS=(
+            "cloud-deploy"
+            "homebrew-tap"
+            "mcp-memory-server"
+            "api-rate-limiter-rust"
+            "api-rate-limiter-go"
+            "api-rate-limiter-py"
+          )
+
+          echo "📊 Collecting traffic data for $DATE..."
+
+          # Create daily data file
+          cat > "traffic-data/${DATE}.json" << EOF
+          {
+            "date": "$DATE",
+            "timestamp": "$TIMESTAMP",
+            "repositories": {}
+          }
+          EOF
+
+          # Collect data for each repository
+          for repo in "${REPOS[@]}"; do
+            echo "Fetching data for $repo..."
+
+            # Get views data
+            VIEWS=$(gh api /repos/jvreagan/$repo/traffic/views 2>/dev/null || echo '{"count":0,"uniques":0}')
+
+            # Get clones data
+            CLONES=$(gh api /repos/jvreagan/$repo/traffic/clones 2>/dev/null || echo '{"count":0,"uniques":0}')
+
+            # Get repository metadata
+            REPO_DATA=$(gh api /repos/jvreagan/$repo 2>/dev/null || echo '{"stargazers_count":0,"forks_count":0}')
+
+            STARS=$(echo "$REPO_DATA" | jq -r '.stargazers_count // 0')
+            FORKS=$(echo "$REPO_DATA" | jq -r '.forks_count // 0')
+
+            VIEW_COUNT=$(echo "$VIEWS" | jq -r '.count // 0')
+            VIEW_UNIQUES=$(echo "$VIEWS" | jq -r '.uniques // 0')
+
+            CLONE_COUNT=$(echo "$CLONES" | jq -r '.count // 0')
+            CLONE_UNIQUES=$(echo "$CLONES" | jq -r '.uniques // 0')
+
+            # Update JSON file with repo data
+            jq --arg repo "$repo" \
+               --argjson stars "$STARS" \
+               --argjson forks "$FORKS" \
+               --argjson views "$VIEW_COUNT" \
+               --argjson view_uniques "$VIEW_UNIQUES" \
+               --argjson clones "$CLONE_COUNT" \
+               --argjson clone_uniques "$CLONE_UNIQUES" \
+               '.repositories[$repo] = {
+                  "stars": $stars,
+                  "forks": $forks,
+                  "views_14d": $views,
+                  "unique_visitors_14d": $view_uniques,
+                  "clones_14d": $clones,
+                  "unique_cloners_14d": $clone_uniques
+                }' "traffic-data/${DATE}.json" > temp.json && mv temp.json "traffic-data/${DATE}.json"
+
+            echo "  ✓ Views: $VIEW_COUNT ($VIEW_UNIQUES unique)"
+            echo "  ✓ Clones: $CLONE_COUNT ($CLONE_UNIQUES unique)"
+          done
+
+          echo ""
+          echo "✅ Traffic data collected for $DATE"
+          cat "traffic-data/${DATE}.json" | jq '.'
+
+      - name: Generate summary report
+        run: |
+          #!/bin/bash
+          DATE=$(date +%Y-%m-%d)
+
+          cat > "traffic-data/latest-summary.md" << 'EOF'
+          # GitHub Traffic Summary
+
+          **Last Updated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Latest Statistics (14-day window)
+
+          EOF
+
+          # Parse the latest data file and create markdown table
+          echo "| Repository | Stars | Forks | Views | Unique Visitors | Clones | Unique Cloners |" >> "traffic-data/latest-summary.md"
+          echo "|------------|-------|-------|-------|-----------------|--------|----------------|" >> "traffic-data/latest-summary.md"
+
+          jq -r '.repositories | to_entries[] |
+            "| \(.key) | \(.value.stars) | \(.value.forks) | \(.value.views_14d) | \(.value.unique_visitors_14d) | \(.value.clones_14d) | \(.value.unique_cloners_14d) |"' \
+            "traffic-data/${DATE}.json" >> "traffic-data/latest-summary.md"
+
+          echo "" >> "traffic-data/latest-summary.md"
+          echo "---" >> "traffic-data/latest-summary.md"
+          echo "*Data collected via GitHub API (14-day rolling window)*" >> "traffic-data/latest-summary.md"
+
+          cat "traffic-data/latest-summary.md"
+
+      - name: Commit and push data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add traffic-data/
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            DATE=$(date +%Y-%m-%d)
+            git commit -m "chore: Update traffic data for $DATE"
+            git push origin traffic-stats
+            echo "✅ Pushed traffic data to traffic-stats branch"
+          fi
+
+      - name: Create summary comment
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "## 📊 Traffic Data Collected for $DATE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat "traffic-data/latest-summary.md" >> $GITHUB_STEP_SUMMARY

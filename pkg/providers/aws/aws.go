@@ -641,13 +641,25 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 				instancePort = port.ContainerPort
 			}
 
-			// Determine protocol based on port number
-			// Use TCP passthrough for HTTPS (443) to preserve self-signed certs
+			// Determine protocol based on port number and SSL configuration
 			protocol := "HTTP"
 			instanceProtocol := "HTTP"
+			var sslCertificateId string
+
 			if port.ContainerPort == 443 {
-				protocol = "TCP"
-				instanceProtocol = "TCP"
+				// Check if ACM certificate is configured
+				if m.SSL != nil && m.SSL.CertificateArn != "" {
+					// Use HTTPS with ACM certificate (ELB terminates SSL)
+					protocol = "HTTPS"
+					instanceProtocol = "HTTP"
+					sslCertificateId = m.SSL.CertificateArn
+					// Forward to port 80 on instance (container listens on HTTP)
+					instancePort = 80
+				} else {
+					// Fall back to TCP passthrough for self-signed certs
+					protocol = "TCP"
+					instanceProtocol = "TCP"
+				}
 			}
 
 			// Configure load balancer listener
@@ -668,8 +680,22 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 					Value:      aws.String(instanceProtocol),
 				},
 			)
-			fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s)\n",
-				port.ContainerPort, protocol, instancePort, instanceProtocol)
+
+			// Add SSL certificate ARN if configured
+			if sslCertificateId != "" {
+				settings = append(settings,
+					ebtypes.ConfigurationOptionSetting{
+						Namespace:  aws.String(fmt.Sprintf("aws:elb:listener:%d", port.ContainerPort)),
+						OptionName: aws.String("SSLCertificateId"),
+						Value:      aws.String(sslCertificateId),
+					},
+				)
+				fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s) with ACM cert\n",
+					port.ContainerPort, protocol, instancePort, instanceProtocol)
+			} else {
+				fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s)\n",
+					port.ContainerPort, protocol, instancePort, instanceProtocol)
+			}
 		}
 	}
 

@@ -78,6 +78,9 @@ type Manifest struct {
 
 	// Ports to expose from the container - optional
 	Ports []PortMapping `yaml:"ports,omitempty"`
+
+	// SSL/TLS configuration (certificates, termination) - optional
+	SSL *SSLConfig `yaml:"ssl,omitempty"`
 }
 
 // PortMapping defines a container port mapping.
@@ -325,6 +328,12 @@ type SecretConfig struct {
 
 	// VaultKey is the key within the secret (e.g., "url")
 	VaultKey string `yaml:"vault_key"`
+}
+
+// SSLConfig defines SSL/TLS certificate configuration.
+type SSLConfig struct {
+	// CertificateArn is the AWS ACM certificate ARN for HTTPS (AWS only)
+	CertificateArn string `yaml:"certificate_arn,omitempty"`
 }
 
 // Load reads a manifest file from disk, parses it, and validates it.
