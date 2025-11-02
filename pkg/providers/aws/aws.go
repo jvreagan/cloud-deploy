@@ -649,12 +649,11 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 			if port.ContainerPort == 443 {
 				// Check if ACM certificate is configured
 				if m.SSL != nil && m.SSL.CertificateArn != "" {
-					// Use HTTPS with ACM certificate (ELB terminates SSL)
-					protocol = "HTTPS"
-					instanceProtocol = "HTTP"
-					sslCertificateId = m.SSL.CertificateArn
-					// Forward to port 80 on instance (container listens on HTTP)
-					instancePort = 80
+					// End-to-end HTTPS: ACM cert at ELB, HTTPS to backend on port 443
+					protocol = "TCP"
+					instanceProtocol = "TCP"
+					// Application listens on HTTPS port 443
+					
 				} else {
 					// Fall back to TCP passthrough for self-signed certs
 					protocol = "TCP"

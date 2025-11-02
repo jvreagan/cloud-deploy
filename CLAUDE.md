@@ -232,6 +232,66 @@ goreleaser release --clean
 
 **Declarative Configuration** - Manifests describe **what** to deploy, not **how**. Provider implementations handle the **how**.
 
+## CRITICAL: HTTPS/SSL Configuration Requirements
+
+### End-to-End HTTPS for HTTPS-by-Design Applications
+
+**NEVER assume SSL termination means forwarding to HTTP on port 80.**
+
+Some applications (like helloworld3) are **HTTPS-by-design** and serve HTTPS traffic on port 443 at the origin. When deploying these applications with ACM certificates:
+
+**CORRECT Configuration:**
+- **Client → ELB:** HTTPS on port 443 using ACM certificate (eliminates browser warnings)
+- **ELB → Instance:** HTTPS on port 443 (respects application architecture)
+- Instance uses self-signed certificate (client never sees it, ACM cert shields it)
+
+**WRONG Configuration (DO NOT DO THIS):**
+- Client → ELB: HTTPS with ACM
+- ELB → Instance: HTTP on port 80 ← WRONG! Application doesn't listen on port 80!
+
+### AWS Elastic Beanstalk: HTTPS Backend Configuration
+
+When configuring ELB listeners in `pkg/providers/aws/aws.go`:
+
+```go
+if port.ContainerPort == 443 {
+    // Check if ACM certificate is configured
+    if m.SSL != nil && m.SSL.CertificateArn != "" {
+        // End-to-end HTTPS: ACM at ELB, self-signed at origin
+        protocol = "HTTPS"
+        instanceProtocol = "HTTPS"  // NOT "HTTP"!
+        sslCertificateId = m.SSL.CertificateArn
+        instancePort = 443  // NOT 80!
+    } else {
+        // Fall back to TCP passthrough for self-signed certs
+        protocol = "TCP"
+        instanceProtocol = "TCP"
+    }
+}
+```
+
+### Why This Matters
+
+1. **Application Architecture:** HTTPS-by-design applications only listen on port 443 with TLS
+2. **Security:** End-to-end encryption from client through to application
+3. **ACM Purpose:** ACM certificate at ELB eliminates browser warnings (trusted CA)
+4. **Backend Certificate:** Instance's self-signed cert is fine - client never sees it
+
+### Implementation Notes
+
+When `InstanceProtocol: HTTPS` is used with ELB, the load balancer will attempt to validate the backend SSL certificate. If using self-signed certificates at the origin:
+
+**Option 1: Backend Authentication Policy (PREFERRED)**
+Configure ELB to not validate backend certificates or use a custom CA policy.
+
+**Option 2: TCP Passthrough (FALLBACK)**
+Use `TCP` protocol on port 443, but this prevents using ACM certificate at ELB.
+
+**Option 3: Valid Backend Certificate**
+Install a valid certificate on the backend instance (adds complexity).
+
+The goal is Option 1: HTTPS/HTTPS with ACM at frontend and relaxed backend validation.
+
 ## Vault Credential Storage Feature
 
 cloud-deploy supports storing cloud provider credentials in HashiCorp Vault, enabling true multi-cloud credential management.
