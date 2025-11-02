@@ -282,20 +282,36 @@ When using `provider.name: gcp`, these additional fields are required or availab
 
 ### AWS
 
-Use AWS credentials for Elastic Beanstalk deployments. Credentials can be provided in three ways (in order of preference):
+Use AWS credentials for Elastic Beanstalk deployments. Credentials can be provided in four ways (in order of preference):
 
-1. **AWS CLI credentials** (recommended)
+1. **HashiCorp Vault** (recommended for production)
+   ```yaml
+   vault:
+     address: "http://127.0.0.1:8200"
+     auth:
+       method: token
+       token: "${VAULT_TOKEN}"
+
+   provider:
+     name: aws
+     credentials:
+       source: vault
+   ```
+
+   See [VAULT_CREDENTIALS.md](VAULT_CREDENTIALS.md) for setup instructions.
+
+2. **AWS CLI credentials**
    ```bash
    aws configure
    ```
 
-2. **Environment variables**
+3. **Environment variables**
    ```bash
    export AWS_ACCESS_KEY_ID=your_access_key
    export AWS_SECRET_ACCESS_KEY=your_secret_key
    ```
 
-3. **Manifest file** (works but not recommended for production)
+4. **Manifest file** (works but not recommended for production)
    ```yaml
    provider:
      name: aws
@@ -339,8 +355,31 @@ Use AWS credentials for Elastic Beanstalk deployments. Credentials can be provid
 
 #### Step 3: Configure Manifest
 
-That's it! Everything else is in the manifest:
+Choose one of two approaches for providing credentials:
 
+**Option 1: HashiCorp Vault (recommended for production)**
+```yaml
+vault:
+  address: "http://127.0.0.1:8200"
+  auth:
+    method: token
+    token: "${VAULT_TOKEN}"
+
+provider:
+  name: gcp
+  region: us-central1
+  project_id: my-new-project
+  billing_account_id: XXXXXX-XXXXXX-XXXXXX
+
+  credentials:
+    source: vault
+
+  public_access: true
+```
+
+See [VAULT_CREDENTIALS.md](VAULT_CREDENTIALS.md) for setup instructions.
+
+**Option 2: Service Account Key File**
 ```yaml
 provider:
   name: gcp
@@ -377,10 +416,19 @@ When you run `cloud-deploy -command deploy`:
 
 cloud-deploy integrates with [HashiCorp Vault](https://www.vaultproject.io/) (Open Source) to provide unified, multi-cloud secret management. Store secrets once in Vault and deploy them to any cloud provider.
 
+### Two Ways to Use Vault
+
+1. **Cloud Provider Credentials** - Store AWS, GCP, Azure credentials in Vault instead of environment variables
+   - See authentication sections above for AWS and GCP examples
+   - Complete guide: [VAULT_CREDENTIALS.md](VAULT_CREDENTIALS.md)
+
+2. **Application Secrets** - Store database passwords, API keys, etc. in Vault
+   - Example below shows how to inject secrets into your application as environment variables
+
 ### Why Vault?
 
 - **Multi-Cloud Flexibility** - Use the same secrets across AWS, GCP, Azure, and OCI
-- **Centralized Management** - Single source of truth for all your application secrets
+- **Centralized Management** - Single source of truth for all your secrets
 - **Security** - Encryption at rest and in transit, fine-grained access control, audit logs
 - **Open Source** - Free to use, self-hosted, no vendor lock-in
 
