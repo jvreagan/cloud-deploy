@@ -653,7 +653,7 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 					protocol = "TCP"
 					instanceProtocol = "TCP"
 					// Application listens on HTTPS port 443
-					
+
 				} else {
 					// Fall back to TCP passthrough for self-signed certs
 					protocol = "TCP"
