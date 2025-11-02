@@ -5,6 +5,7 @@ package aws
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
+	"github.com/jvreagan/cloud-deploy/pkg/registry"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
 )
 
@@ -29,6 +31,7 @@ type Provider struct {
 	ebClient *elasticbeanstalk.Client
 	s3Client *s3.Client
 	region   string
+	config   aws.Config
 }
 
 // New creates a new AWS provider instance with the specified region and optional credentials.
@@ -64,6 +67,7 @@ func New(ctx context.Context, region string, creds *manifest.CredentialsConfig) 
 		ebClient: elasticbeanstalk.NewFromConfig(cfg),
 		s3Client: s3.NewFromConfig(cfg),
 		region:   region,
+		config:   cfg,
 	}, nil
 }
 
@@ -103,18 +107,41 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		return nil, fmt.Errorf("failed to ensure application: %w", err)
 	}
 
-	// Step 2: Create S3 bucket for application versions
+	// Step 2: Push image to ECR
+	fmt.Println("\n=== Pushing image to ECR ===")
+	ecrRegistry, err := registry.NewECRRegistry(p.config, p.region, m.Application.Name, "latest")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ECR registry: %w", err)
+	}
+
+	if err := ecrRegistry.Authenticate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to authenticate with ECR: %w", err)
+	}
+
+	taggedImage, err := ecrRegistry.TagImage(ctx, m.Image)
+	if err != nil {
+		return nil, fmt.Errorf("failed to tag image for ECR: %w", err)
+	}
+
+	if err := ecrRegistry.PushImage(ctx, taggedImage); err != nil {
+		return nil, fmt.Errorf("failed to push image to ECR: %w", err)
+	}
+
+	imageURI := ecrRegistry.GetImageURI()
+	fmt.Printf("Image pushed to ECR: %s\n", imageURI)
+
+	// Step 3: Create S3 bucket for application versions
 	bucketName := fmt.Sprintf("elasticbeanstalk-%s-%s", p.region, m.Application.Name)
 	if err := p.ensureBucket(ctx, bucketName); err != nil {
 		return nil, fmt.Errorf("failed to ensure S3 bucket: %w", err)
 	}
 
-	// Step 3: Zip and upload source code
+	// Step 4: Create and upload Dockerrun.aws.json
 	versionLabel := fmt.Sprintf("v-%d", time.Now().Unix())
 	s3Key := fmt.Sprintf("%s/%s.zip", m.Application.Name, versionLabel)
 
-	if err := p.uploadSource(ctx, m.Deployment.Source.Path, bucketName, s3Key); err != nil {
-		return nil, fmt.Errorf("failed to upload source: %w", err)
+	if err := p.uploadDockerrun(ctx, imageURI, bucketName, s3Key); err != nil {
+		return nil, fmt.Errorf("failed to upload Dockerrun.aws.json: %w", err)
 	}
 
 	// Step 4: Create application version
@@ -349,6 +376,78 @@ func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3K
 
 	// Upload to S3
 	fmt.Printf("Uploading to S3: s3://%s/%s\n", bucketName, s3Key)
+	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(s3Key),
+		Body:   zipFile,
+	})
+	return err
+}
+
+// uploadDockerrun creates a Dockerrun.aws.json file for the ECR image and uploads it to S3.
+func (p *Provider) uploadDockerrun(ctx context.Context, imageURI, bucketName, s3Key string) error {
+	fmt.Println("Creating Dockerrun.aws.json...")
+
+	// Create Dockerrun.aws.json structure
+	dockerrun := map[string]interface{}{
+		"AWSEBDockerrunVersion": "1",
+		"Image": map[string]interface{}{
+			"Name":   imageURI,
+			"Update": "true",
+		},
+		"Ports": []map[string]interface{}{
+			{
+				"ContainerPort": 80,
+				"HostPort":      80,
+			},
+			{
+				"ContainerPort": 443,
+				"HostPort":      443,
+			},
+		},
+	}
+
+	// Marshal to JSON
+	dockerrunJSON, err := json.MarshalIndent(dockerrun, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal Dockerrun.aws.json: %w", err)
+	}
+
+	// Create temporary directory
+	tmpDir, err := os.MkdirTemp("", "cloud-deploy-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write Dockerrun.aws.json file
+	dockerrunPath := filepath.Join(tmpDir, "Dockerrun.aws.json")
+	if err := os.WriteFile(dockerrunPath, dockerrunJSON, 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerrun.aws.json: %w", err)
+	}
+
+	fmt.Printf("Dockerrun.aws.json created with image: %s\n", imageURI)
+
+	// Create temporary zip file
+	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(zipFile.Name())
+	defer zipFile.Close()
+
+	// Zip the Dockerrun.aws.json file
+	if err := zipDirectory(tmpDir, zipFile); err != nil {
+		return fmt.Errorf("failed to zip Dockerrun.aws.json: %w", err)
+	}
+
+	// Rewind to beginning of file
+	if _, err := zipFile.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek: %w", err)
+	}
+
+	// Upload to S3
+	fmt.Printf("Uploading Dockerrun.aws.json to S3: s3://%s/%s\n", bucketName, s3Key)
 	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),

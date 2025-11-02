@@ -3,18 +3,12 @@
 package gcp
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2"
-	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/logging/logadmin"
 	run "cloud.google.com/go/run/apiv2"
@@ -27,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
+	"github.com/jvreagan/cloud-deploy/pkg/registry"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
 )
 
@@ -192,32 +187,47 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		}
 	}
 
-	// Step 1: Create storage bucket for source code
-	bucketName := fmt.Sprintf("%s-cloud-deploy-source", p.projectID)
-	if err := p.ensureBucket(ctx, bucketName); err != nil {
-		return nil, fmt.Errorf("failed to ensure storage bucket: %w", err)
+	// Step 1: Push image to GCR (Artifact Registry)
+	fmt.Println("\n=== Pushing image to GCR ===")
+
+	// Get credentials JSON for GCR authentication
+	var credsJSON string
+	if m.Provider.Credentials != nil {
+		if m.Provider.Credentials.ServiceAccountKeyJSON != "" {
+			credsJSON = m.Provider.Credentials.ServiceAccountKeyJSON
+		}
+		// Note: If using file path, gcloud will handle auth
 	}
 
-	// Step 2: Upload source code to Cloud Storage
-	timestamp := time.Now().Unix()
-	objectName := fmt.Sprintf("%s/%d/source.tar.gz", m.Application.Name, timestamp)
-	if err := p.uploadSource(ctx, m.Deployment.Source.Path, bucketName, objectName); err != nil {
-		return nil, fmt.Errorf("failed to upload source from %s to gs://%s/%s: %w", m.Deployment.Source.Path, bucketName, objectName, err)
+	repositoryName := m.Application.Name
+	gcrRegistry, err := registry.NewGCRRegistry(p.projectID, p.region, repositoryName, "latest", credsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCR registry handler: %w", err)
 	}
 
-	// Step 3: Build container image using Cloud Build
-	imageTag := fmt.Sprintf("gcr.io/%s/%s:%d", p.projectID, m.Application.Name, timestamp)
-	if err := p.buildImage(ctx, bucketName, objectName, imageTag); err != nil {
-		return nil, fmt.Errorf("failed to build image %s from gs://%s/%s: %w", imageTag, bucketName, objectName, err)
+	if err := gcrRegistry.Authenticate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to authenticate with GCR: %w", err)
 	}
 
-	// Step 4: Deploy to Cloud Run
+	taggedImage, err := gcrRegistry.TagImage(ctx, m.Image)
+	if err != nil {
+		return nil, fmt.Errorf("failed to tag image for GCR: %w", err)
+	}
+
+	if err := gcrRegistry.PushImage(ctx, taggedImage); err != nil {
+		return nil, fmt.Errorf("failed to push image to GCR: %w", err)
+	}
+
+	imageURI := gcrRegistry.GetImageURI()
+	fmt.Printf("Successfully pushed image to GCR: %s\n", imageURI)
+
+	// Step 2: Deploy to Cloud Run
 	serviceName := m.Environment.Name
-	if err := p.deployService(ctx, m, serviceName, imageTag); err != nil {
-		return nil, fmt.Errorf("failed to deploy service %s with image %s: %w", serviceName, imageTag, err)
+	if err := p.deployService(ctx, m, serviceName, imageURI); err != nil {
+		return nil, fmt.Errorf("failed to deploy service %s with image %s: %w", serviceName, imageURI, err)
 	}
 
-	// Step 5: Configure Cloud Logging if enabled
+	// Step 3: Configure Cloud Logging if enabled
 	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.Enabled {
 		if err := p.configureLogging(ctx, m); err != nil {
 			fmt.Printf("Warning: failed to configure Cloud Logging: %v\n", err)
@@ -225,7 +235,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		}
 	}
 
-	// Step 6: Wait for service to be ready
+	// Step 4: Wait for service to be ready
 	fmt.Println("Waiting for service to be ready...")
 	url, err := p.waitForService(ctx, serviceName)
 	if err != nil {
@@ -338,116 +348,6 @@ func (p *Provider) Status(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		URL:             url,
 		LastUpdated:     lastUpdated,
 	}, nil
-}
-
-// ensureBucket creates a Cloud Storage bucket if it doesn't exist.
-func (p *Provider) ensureBucket(ctx context.Context, bucketName string) error {
-	bucket := p.storageClient.Bucket(bucketName)
-
-	// Check if bucket exists
-	_, err := bucket.Attrs(ctx)
-	if err == nil {
-		fmt.Printf("Storage bucket already exists: %s\n", bucketName)
-		return nil
-	}
-
-	// Create bucket
-	fmt.Printf("Creating storage bucket: %s\n", bucketName)
-	if err := bucket.Create(ctx, p.projectID, &storage.BucketAttrs{
-		Location: strings.ToUpper(p.region),
-	}); err != nil {
-		return fmt.Errorf("failed to create bucket: %w", err)
-	}
-
-	return nil
-}
-
-// uploadSource creates a tarball of the source directory and uploads it to Cloud Storage.
-func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, objectName string) error {
-	fmt.Println("Creating source tarball...")
-
-	// Create temporary tar.gz file
-	tarFile, err := os.CreateTemp("", "cloud-deploy-*.tar.gz")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(tarFile.Name())
-	defer tarFile.Close()
-
-	// Create tar.gz archive
-	if err := createTarGz(sourcePath, tarFile); err != nil {
-		return fmt.Errorf("failed to create tarball: %w", err)
-	}
-
-	// Rewind to beginning of file
-	if _, err := tarFile.Seek(0, 0); err != nil {
-		return fmt.Errorf("failed to seek: %w", err)
-	}
-
-	// Upload to Cloud Storage
-	fmt.Printf("Uploading to Cloud Storage: gs://%s/%s\n", bucketName, objectName)
-	bucket := p.storageClient.Bucket(bucketName)
-	obj := bucket.Object(objectName)
-	writer := obj.NewWriter(ctx)
-
-	if _, err := io.Copy(writer, tarFile); err != nil {
-		writer.Close()
-		return fmt.Errorf("failed to upload: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close writer: %w", err)
-	}
-
-	return nil
-}
-
-// buildImage builds a container image using Cloud Build.
-func (p *Provider) buildImage(ctx context.Context, bucketName, objectName, imageTag string) error {
-	fmt.Println("Building container image with Cloud Build...")
-
-	build := &cloudbuildpb.Build{
-		Source: &cloudbuildpb.Source{
-			Source: &cloudbuildpb.Source_StorageSource{
-				StorageSource: &cloudbuildpb.StorageSource{
-					Bucket: bucketName,
-					Object: objectName,
-				},
-			},
-		},
-		Steps: []*cloudbuildpb.BuildStep{
-			{
-				Name: "gcr.io/cloud-builders/docker",
-				Args: []string{"build", "-t", imageTag, "."},
-			},
-		},
-		Images:  []string{imageTag},
-		Timeout: durationpb.New(20 * time.Minute),
-	}
-
-	req := &cloudbuildpb.CreateBuildRequest{
-		ProjectId: p.projectID,
-		Build:     build,
-	}
-
-	op, err := p.buildClient.CreateBuild(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to start build: %w", err)
-	}
-
-	// Wait for build to complete
-	fmt.Println("Waiting for build to complete...")
-	result, err := op.Wait(ctx)
-	if err != nil {
-		return fmt.Errorf("build failed: %w", err)
-	}
-
-	if result.Status != cloudbuildpb.Build_SUCCESS {
-		return fmt.Errorf("build failed with status: %s", result.Status)
-	}
-
-	fmt.Printf("Image built successfully: %s\n", imageTag)
-	return nil
 }
 
 // deployService deploys or updates a Cloud Run service with resource limits and scaling configuration.
@@ -931,59 +831,6 @@ func (p *Provider) configureLogging(ctx context.Context, m *manifest.Manifest) e
 		m.Environment.Name, p.projectID)
 
 	return nil
-}
-
-// createTarGz creates a tar.gz archive of a directory.
-func createTarGz(sourceDir string, tarFile *os.File) error {
-	gzWriter := gzip.NewWriter(tarFile)
-	defer gzWriter.Close()
-
-	tarWriter := tar.NewWriter(gzWriter)
-	defer tarWriter.Close()
-
-	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories
-		if info.IsDir() {
-			return nil
-		}
-
-		// Skip hidden files and common excludes
-		if strings.HasPrefix(info.Name(), ".") {
-			return nil
-		}
-
-		// Get relative path
-		relPath, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-
-		// Create tar header
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return err
-		}
-		header.Name = relPath
-
-		// Write header
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return err
-		}
-
-		// Copy file content
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		_, err = io.Copy(tarWriter, file)
-		return err
-	})
 }
 
 // Rollback rolls back the GCP Cloud Run service to the previous revision.

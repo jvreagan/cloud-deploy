@@ -29,6 +29,10 @@ type Manifest struct {
 	// Version of the manifest schema (currently "1.0")
 	Version string `yaml:"version"`
 
+	// Image is the Docker image to deploy (e.g., "myapp:latest" or "docker.io/myapp:v1.0")
+	// This should be a pre-built image available in your local Docker daemon or a registry
+	Image string `yaml:"image"`
+
 	// Provider configuration (cloud provider, region, credentials)
 	Provider ProviderConfig `yaml:"provider"`
 
@@ -337,6 +341,9 @@ func Load(filename string) (*Manifest, error) {
 // Validate checks if the manifest has all required fields and valid values.
 // Returns an error describing what is invalid.
 func (m *Manifest) Validate() error {
+	if m.Image == "" {
+		return fmt.Errorf("image is required (e.g., 'myapp:latest')")
+	}
 	if m.Provider.Name == "" {
 		return fmt.Errorf("provider name is required")
 	}

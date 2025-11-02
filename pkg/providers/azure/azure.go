@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,6 +21,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
+	"github.com/jvreagan/cloud-deploy/pkg/registry"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
 )
 
@@ -120,10 +120,9 @@ func (p *Provider) Name() string {
 // This method:
 // 1. Creates resource group if it doesn't exist
 // 2. Creates Azure Container Registry (ACR) if it doesn't exist
-// 3. Uploads source code to Azure Blob Storage
-// 4. Builds Docker image using ACR Tasks
-// 5. Deploys to Azure Container Instances
-// 6. Fetches Vault secrets if configured
+// 3. Pushes pre-built Docker image to ACR
+// 4. Deploys to Azure Container Instances
+// 5. Fetches Vault secrets if configured
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
 	fmt.Println("Starting Azure Container Instances deployment...")
 
@@ -150,22 +149,37 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 
 	// Step 2: Create Container Registry (ACR)
 	registryName := p.generateRegistryName(m.Application.Name)
-	registryLoginServer, registryPassword, err := p.ensureContainerRegistry(ctx, registryName)
+	_, registryPassword, err := p.ensureContainerRegistry(ctx, registryName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure container registry: %w", err)
 	}
 
-	// Step 3: Build and push Docker image to ACR
-	timestamp := time.Now().Unix()
-	imageTag := fmt.Sprintf("%s/%s:%d", registryLoginServer, m.Application.Name, timestamp)
-
-	if err := p.buildAndPushImage(ctx, m.Deployment.Source.Path, registryName, imageTag); err != nil {
-		return nil, fmt.Errorf("failed to build and push image: %w", err)
+	// Step 3: Push image to ACR
+	fmt.Println("\n=== Pushing image to ACR ===")
+	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, "latest")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ACR registry handler: %w", err)
 	}
+
+	if err := acrRegistry.Authenticate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to authenticate with ACR: %w", err)
+	}
+
+	taggedImage, err := acrRegistry.TagImage(ctx, m.Image)
+	if err != nil {
+		return nil, fmt.Errorf("failed to tag image for ACR: %w", err)
+	}
+
+	if err := acrRegistry.PushImage(ctx, taggedImage); err != nil {
+		return nil, fmt.Errorf("failed to push image to ACR: %w", err)
+	}
+
+	imageURI := acrRegistry.GetImageURI()
+	fmt.Printf("Successfully pushed image to ACR: %s\n", imageURI)
 
 	// Step 4: Deploy to Azure Container Instances
 	containerGroupName := m.Environment.Name
-	fqdn, err := p.deployContainerGroup(ctx, m, containerGroupName, imageTag, registryName, registryPassword)
+	fqdn, err := p.deployContainerGroup(ctx, m, containerGroupName, imageURI, registryName, registryPassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy container group: %w", err)
 	}
@@ -418,42 +432,6 @@ func (p *Provider) getRegistryCredentials(ctx context.Context, registryName stri
 	return loginServer, password, nil
 }
 
-// buildAndPushImage builds a Docker image from source and pushes it to ACR.
-// It uses local Docker to build and push the image.
-func (p *Provider) buildAndPushImage(ctx context.Context, sourcePath, registryName, imageTag string) error {
-	fmt.Printf("Building and pushing image: %s\n", imageTag)
-
-	// Get registry credentials for docker login
-	registryLoginServer, registryPassword, err := p.getRegistryCredentials(ctx, registryName)
-	if err != nil {
-		return fmt.Errorf("failed to get registry credentials: %w", err)
-	}
-
-	// Build the Docker image locally for linux/amd64 platform (ACI requirement)
-	fmt.Printf("Building Docker image from %s...\n", sourcePath)
-	buildCmd := fmt.Sprintf("cd %s && docker build --platform linux/amd64 -t %s .", sourcePath, imageTag)
-	if err := runCommand(buildCmd); err != nil {
-		return fmt.Errorf("failed to build Docker image: %w", err)
-	}
-
-	// Login to ACR
-	fmt.Printf("Logging in to Azure Container Registry: %s\n", registryLoginServer)
-	loginCmd := fmt.Sprintf("echo %s | docker login %s -u %s --password-stdin",
-		registryPassword, registryLoginServer, registryName)
-	if err := runCommand(loginCmd); err != nil {
-		return fmt.Errorf("failed to login to ACR: %w", err)
-	}
-
-	// Push the image to ACR
-	fmt.Printf("Pushing image to ACR...\n")
-	pushCmd := fmt.Sprintf("docker push %s", imageTag)
-	if err := runCommand(pushCmd); err != nil {
-		return fmt.Errorf("failed to push image: %w", err)
-	}
-
-	fmt.Printf("Successfully pushed image: %s\n", imageTag)
-	return nil
-}
 
 // deployContainerGroup creates or updates an Azure Container Instance.
 func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifest, name, image, registryName, registryPassword string) (string, error) {
@@ -514,6 +492,10 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 							{
 								Port:     to.Ptr[int32](80),
 								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
+						},
+						{
+							Port:     to.Ptr[int32](443),
+							Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
 							},
 						},
 						EnvironmentVariables: envVars,
@@ -526,6 +508,10 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 				Ports: []*armcontainerinstance.Port{
 					{
 						Port:     to.Ptr[int32](80),
+						Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP),
+					},
+					{
+						Port:     to.Ptr[int32](443),
 						Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP),
 					},
 				},
@@ -688,10 +674,3 @@ func createTarGz(sourceDir, targetFile string) error {
 	})
 }
 
-// runCommand executes a shell command and returns any error.
-func runCommand(command string) error {
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
