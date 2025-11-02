@@ -16,14 +16,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: traffic-stats
-          # Create branch if it doesn't exist
           fetch-depth: 0
 
-      - name: Create traffic-stats branch if needed
+      - name: Setup traffic-stats branch
         run: |
-          git checkout traffic-stats 2>/dev/null || git checkout -b traffic-stats
+          # Check if traffic-stats branch exists remotely
+          if git ls-remote --heads origin traffic-stats | grep -q traffic-stats; then
+            echo "traffic-stats branch exists, checking it out..."
+            git checkout traffic-stats
+          else
+            echo "traffic-stats branch doesn't exist, creating it..."
+            git checkout -b traffic-stats
+          fi
+
           mkdir -p traffic-data
+          echo "✅ Branch ready: $(git branch --show-current)"
 
       - name: Collect traffic data
         env:
