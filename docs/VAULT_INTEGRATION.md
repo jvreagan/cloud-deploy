@@ -4,6 +4,18 @@
 
 cloud-deploy integrates with HashiCorp Vault (Open Source) to provide unified, multi-cloud secret management. This allows you to store secrets once in Vault and deploy them to any cloud provider (AWS, GCP, Azure, OCI).
 
+## Two Ways to Use Vault
+
+1. **Cloud Provider Credentials** - Store AWS, GCP, Azure credentials in Vault for multi-cloud deployments
+   - 📖 **Complete guide:** [VAULT_CREDENTIALS.md](../VAULT_CREDENTIALS.md)
+   - Recommended for production deployments
+   - Centralized credential rotation and auditing
+
+2. **Application Secrets** (this guide) - Store database passwords, API keys, and other application secrets
+   - Inject secrets as environment variables during deployment
+   - Works with all cloud providers
+   - Covered in detail below
+
 ## Why Vault?
 
 **Multi-Cloud Flexibility:**
