@@ -366,9 +366,12 @@ func (m *Manifest) Validate() error {
 		if m.Provider.ProjectID == "" {
 			return fmt.Errorf("provider.project_id is required for GCP deployments")
 		}
-		if m.Provider.Credentials == nil ||
-			(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
-			return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
+		// Check credentials unless using Vault
+		if m.Provider.Credentials == nil || m.Provider.Credentials.Source != "vault" {
+			if m.Provider.Credentials == nil ||
+				(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
+				return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
+			}
 		}
 		if m.Provider.BillingAccountID == "" {
 			return fmt.Errorf("provider.billing_account_id is required for GCP deployments")

@@ -52,6 +52,7 @@ func TestInvalidCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	manifestPath := tmpDir + "/test-manifest.yaml"
 	manifestContent := `version: "1.0"
+image: "test-app:latest"
 provider:
   name: aws
   region: us-east-1

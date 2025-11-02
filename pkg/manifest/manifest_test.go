@@ -16,6 +16,7 @@ func TestLoad(t *testing.T) {
 		{
 			name: "valid AWS manifest",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: aws
   region: us-east-1
@@ -42,6 +43,7 @@ health_check:
 		{
 			name: "valid GCP manifest",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: gcp
   region: us-central1
@@ -79,6 +81,7 @@ health_check:
 		{
 			name: "missing provider name",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   region: us-east-1
 application:
@@ -92,6 +95,7 @@ environment:
 		{
 			name: "missing application name",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: aws
   region: us-east-1
@@ -104,6 +108,7 @@ environment:
 		{
 			name: "missing environment name",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: aws
   region: us-east-1
@@ -116,6 +121,7 @@ application:
 		{
 			name: "GCP missing project_id",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: gcp
   region: us-central1
@@ -133,6 +139,7 @@ environment:
 		{
 			name: "GCP missing credentials",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: gcp
   region: us-central1
@@ -149,6 +156,7 @@ environment:
 		{
 			name: "GCP missing billing account",
 			content: `version: "1.0"
+image: "test-app:latest"
 provider:
   name: gcp
   region: us-central1
@@ -217,6 +225,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid AWS manifest",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:   "aws",
 					Region: "us-east-1",
@@ -233,6 +242,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid GCP manifest",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:             "gcp",
 					Region:           "us-central1",
@@ -254,6 +264,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing provider name",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Region: "us-east-1",
 				},
@@ -270,6 +281,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing application name",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:   "aws",
 					Region: "us-east-1",
@@ -284,6 +296,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing environment name",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:   "aws",
 					Region: "us-east-1",
@@ -298,6 +311,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "GCP missing project ID",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:             "gcp",
 					Region:           "us-central1",
@@ -319,6 +333,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "GCP missing credentials",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:             "gcp",
 					Region:           "us-central1",
@@ -338,6 +353,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "GCP with service_account_key_json",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:             "gcp",
 					Region:           "us-central1",
@@ -359,6 +375,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "GCP missing billing account",
 			manifest: &Manifest{
+				Image: "test-app:latest",
 				Provider: ProviderConfig{
 					Name:      "gcp",
 					Region:    "us-central1",
