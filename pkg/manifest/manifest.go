@@ -32,7 +32,14 @@ type Manifest struct {
 
 	// Image is the Docker image to deploy (e.g., "myapp:latest" or "docker.io/myapp:v1.0")
 	// This should be a pre-built image available in your local Docker daemon or a registry
-	Image string `yaml:"image"`
+	// DEPRECATED in favor of Containers for multi-container deployments
+	// For backward compatibility: if Image is set and Containers is empty, single-container mode is used
+	Image string `yaml:"image,omitempty"`
+
+	// Containers defines multiple containers to deploy together (multi-container deployment)
+	// If set, this takes precedence over Image field
+	// Each container runs as a separate process in the deployment
+	Containers []Container `yaml:"containers,omitempty"`
 
 	// Provider configuration (cloud provider, region, credentials)
 	Provider ProviderConfig `yaml:"provider"`
@@ -75,6 +82,24 @@ type Manifest struct {
 
 	// SSL/TLS configuration (certificates, termination) - optional
 	SSL *SSLConfig `yaml:"ssl,omitempty"`
+}
+
+// Container defines a single container in a multi-container deployment.
+type Container struct {
+	// Name of the container (must be unique within the deployment)
+	Name string `yaml:"name"`
+
+	// Image is the Docker image for this container
+	Image string `yaml:"image"`
+
+	// Ports to expose from this container - optional
+	Ports []PortMapping `yaml:"ports,omitempty"`
+
+	// Environment variables for this container - optional
+	Environment map[string]string `yaml:"environment,omitempty"`
+
+	// Command to override the container's default command - optional
+	Command []string `yaml:"command,omitempty"`
 }
 
 // PortMapping defines a container port mapping.
@@ -320,9 +345,32 @@ func Load(filename string) (*Manifest, error) {
 // Validate checks if the manifest has all required fields and valid values.
 // Returns an error describing what is invalid.
 func (m *Manifest) Validate() error {
-	if m.Image == "" {
-		return fmt.Errorf("image is required (e.g., 'myapp:latest')")
+	// Validate container configuration (single or multi-container)
+	if m.Image == "" && len(m.Containers) == 0 {
+		return fmt.Errorf("either 'image' (single-container) or 'containers' (multi-container) is required")
 	}
+	if m.Image != "" && len(m.Containers) > 0 {
+		return fmt.Errorf("cannot specify both 'image' and 'containers' - use one or the other")
+	}
+
+	// Validate multi-container configuration
+	if len(m.Containers) > 0 {
+		containerNames := make(map[string]bool)
+		for i, container := range m.Containers {
+			if container.Name == "" {
+				return fmt.Errorf("container[%d]: name is required", i)
+			}
+			if container.Image == "" {
+				return fmt.Errorf("container[%d] (%s): image is required", i, container.Name)
+			}
+			// Check for duplicate names
+			if containerNames[container.Name] {
+				return fmt.Errorf("duplicate container name: %s", container.Name)
+			}
+			containerNames[container.Name] = true
+		}
+	}
+
 	if m.Provider.Name == "" {
 		return fmt.Errorf("provider name is required")
 	}
@@ -411,4 +459,39 @@ func expandEnvVars(s string) string {
 		// Get environment variable value
 		return os.Getenv(varName)
 	})
+}
+
+// IsMultiContainer returns true if this manifest defines a multi-container deployment.
+func (m *Manifest) IsMultiContainer() bool {
+	return len(m.Containers) > 0
+}
+
+// GetImages returns a list of all Docker images that need to be deployed.
+// For single-container: returns []string{m.Image}
+// For multi-container: returns all container images
+func (m *Manifest) GetImages() []string {
+	if m.IsMultiContainer() {
+		images := make([]string, len(m.Containers))
+		for i, container := range m.Containers {
+			images[i] = container.Image
+		}
+		return images
+	}
+	return []string{m.Image}
+}
+
+// GetPrimaryContainer returns the primary/first container.
+// For single-container: returns a Container created from the Image field
+// For multi-container: returns the first container in the Containers array
+func (m *Manifest) GetPrimaryContainer() Container {
+	if m.IsMultiContainer() {
+		return m.Containers[0]
+	}
+	// Convert single-container config to Container struct
+	return Container{
+		Name:        m.Application.Name,
+		Image:       m.Image,
+		Ports:       m.Ports,
+		Environment: m.EnvironmentVariables,
+	}
 }

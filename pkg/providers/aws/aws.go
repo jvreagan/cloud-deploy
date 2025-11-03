@@ -20,6 +20,7 @@ import (
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"gopkg.in/yaml.v3"
 
 	"github.com/jvreagan/cloud-deploy/pkg/logging"
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
@@ -101,7 +102,12 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to AWS Elastic Beanstalk.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	logging.Info("Starting AWS Elastic Beanstalk deployment")
+	if m.IsMultiContainer() {
+		logging.Info("Starting AWS Elastic Beanstalk multi-container deployment")
+		return p.deployMultiContainer(ctx, m)
+	}
+
+	logging.Info("Starting AWS Elastic Beanstalk single-container deployment")
 
 	// Step 0: Auto-detect solution stack if not specified
 	if err := p.ensureSolutionStack(ctx, m); err != nil {
@@ -183,6 +189,96 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		URL:             url,
 		Status:          "Ready",
 		Message:         "Deployment successful",
+	}, nil
+}
+
+// deployMultiContainer deploys a multi-container application using Docker Compose.
+func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	// Step 0: Ensure we're using the Docker Compose platform
+	if m.Deployment.SolutionStack == "" {
+		m.Deployment.SolutionStack = "64bit Amazon Linux 2023 v4.7.2 running Docker"
+	}
+
+	// Step 1: Create or verify application exists
+	if err := p.ensureApplication(ctx, m); err != nil {
+		return nil, fmt.Errorf("failed to ensure application: %w", err)
+	}
+
+	// Step 2: Push ALL container images to ECR
+	logging.Info("Distributing %d container images to ECR", len(m.Containers))
+	containerImageURIs := make(map[string]string) // container name -> ECR URI
+
+	for _, container := range m.Containers {
+		logging.Info("Pushing container image", "container", container.Name, "image", container.Image)
+
+		ecrRegistry, err := registry.NewECRRegistry(p.config, p.region, m.Application.Name, container.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ECR registry for container %s: %w", container.Name, err)
+		}
+
+		distributor := registry.NewDistributor(container.Image)
+		distributor.AddRegistry(ecrRegistry)
+
+		imageURIs, err := distributor.Distribute(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to distribute image for container %s: %w", container.Name, err)
+		}
+
+		imageURI := imageURIs[ecrRegistry.GetRegistryURL()]
+		containerImageURIs[container.Name] = imageURI
+		logging.Info("Image pushed to ECR", "container", container.Name, "image_uri", imageURI)
+	}
+
+	// Step 3: Create S3 bucket for application versions
+	bucketName := fmt.Sprintf("elasticbeanstalk-%s-%s", p.region, m.Application.Name)
+	if err := p.ensureBucket(ctx, bucketName); err != nil {
+		return nil, fmt.Errorf("failed to ensure S3 bucket: %w", err)
+	}
+
+	// Step 4: Create and upload docker-compose.yml
+	versionLabel := "latest"
+	s3Key := fmt.Sprintf("%s/%s.zip", m.Application.Name, versionLabel)
+
+	if err := p.uploadDockerCompose(ctx, m, containerImageURIs, bucketName, s3Key); err != nil {
+		return nil, fmt.Errorf("failed to upload docker-compose.yml: %w", err)
+	}
+
+	// Step 5: Create application version
+	if err := p.createApplicationVersion(ctx, m, versionLabel, bucketName, s3Key); err != nil {
+		return nil, fmt.Errorf("failed to create application version: %w", err)
+	}
+
+	// Step 6: Create or update environment
+	envExists, err := p.environmentExists(ctx, m.Application.Name, m.Environment.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check environment: %w", err)
+	}
+
+	if envExists {
+		logging.Info("Updating existing environment", "environment", m.Environment.Name)
+		if err := p.updateEnvironment(ctx, m, versionLabel); err != nil {
+			return nil, fmt.Errorf("failed to update environment: %w", err)
+		}
+	} else {
+		logging.Info("Creating new environment", "environment", m.Environment.Name)
+		if err := p.createEnvironment(ctx, m, versionLabel); err != nil {
+			return nil, fmt.Errorf("failed to create environment: %w", err)
+		}
+	}
+
+	// Step 7: Wait for environment to be ready
+	logging.Info("Waiting for environment to be ready")
+	url, err := p.waitForEnvironment(ctx, m.Application.Name, m.Environment.Name)
+	if err != nil {
+		return nil, fmt.Errorf("environment deployment failed: %w", err)
+	}
+
+	return &types.DeploymentResult{
+		ApplicationName: m.Application.Name,
+		EnvironmentName: m.Environment.Name,
+		URL:             url,
+		Status:          "Ready",
+		Message:         fmt.Sprintf("Multi-container deployment successful (%d containers)", len(m.Containers)),
 	}, nil
 }
 
@@ -481,6 +577,103 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 
 	// Upload to S3
 	logging.Info("Uploading Dockerrun.aws.json to S3", "bucket", bucketName, "key", s3Key)
+	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(s3Key),
+		Body:   zipFile,
+	})
+	return err
+}
+
+// uploadDockerCompose creates a docker-compose.yml file for multi-container deployment and uploads it to S3.
+func (p *Provider) uploadDockerCompose(ctx context.Context, m *manifest.Manifest, containerImageURIs map[string]string, bucketName, s3Key string) error {
+	// Build docker-compose.yml structure
+	composeFile := map[string]interface{}{
+		"version": "3.8",
+		"services": make(map[string]interface{}),
+	}
+
+	services := composeFile["services"].(map[string]interface{})
+
+	for _, container := range m.Containers {
+		imageURI := containerImageURIs[container.Name]
+
+		service := map[string]interface{}{
+			"image": imageURI,
+		}
+
+		// Add ports if specified
+		if len(container.Ports) > 0 {
+			ports := make([]string, len(container.Ports))
+			for i, port := range container.Ports {
+				// Always use explicit host:container mapping for Elastic Beanstalk
+				hostPort := port.HostPort
+				if hostPort == 0 {
+					hostPort = port.ContainerPort // Default to same port
+				}
+				ports[i] = fmt.Sprintf("%d:%d", hostPort, port.ContainerPort)
+			}
+			service["ports"] = ports
+		}
+
+		// Add environment variables if specified
+		if len(container.Environment) > 0 {
+			envVars := make(map[string]string)
+			for key, value := range container.Environment {
+				envVars[key] = value
+			}
+			service["environment"] = envVars
+		}
+
+		// Add command if specified
+		if len(container.Command) > 0 {
+			service["command"] = container.Command
+		}
+
+		services[container.Name] = service
+	}
+
+	// Marshal to YAML
+	composeYAML, err := yaml.Marshal(composeFile)
+	if err != nil {
+		return fmt.Errorf("failed to marshal docker-compose.yml: %w", err)
+	}
+
+	// Create temporary directory
+	tmpDir, err := os.MkdirTemp("", "cloud-deploy-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write docker-compose.yml file
+	composePath := filepath.Join(tmpDir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, composeYAML, 0644); err != nil {
+		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
+	}
+
+	logging.Info("docker-compose.yml created with %d services", len(m.Containers))
+
+	// Create temporary zip file
+	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(zipFile.Name())
+	defer zipFile.Close()
+
+	// Zip the docker-compose.yml file
+	if err := zipDirectory(tmpDir, zipFile); err != nil {
+		return fmt.Errorf("failed to zip docker-compose.yml: %w", err)
+	}
+
+	// Rewind to beginning of file
+	if _, err := zipFile.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek: %w", err)
+	}
+
+	// Upload to S3
+	logging.Info("Uploading docker-compose.yml to S3", "bucket", bucketName, "key", s3Key)
 	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),
