@@ -139,7 +139,8 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 4: Create and upload Dockerrun.aws.json
-	versionLabel := fmt.Sprintf("v-%d", time.Now().Unix())
+	// Use a fixed version label so deployments replace the existing version instead of creating new ones
+	versionLabel := "latest"
 	s3Key := fmt.Sprintf("%s/%s.zip", m.Application.Name, versionLabel)
 
 	if err := p.uploadDockerrun(ctx, m, imageURI, bucketName, s3Key); err != nil {
@@ -489,10 +490,31 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 }
 
 // createApplicationVersion creates a new application version.
+// If the version already exists, it deletes it first to allow overwriting.
 func (p *Provider) createApplicationVersion(ctx context.Context, m *manifest.Manifest, versionLabel, bucketName, s3Key string) error {
+	// Check if version already exists
+	existingVersions, err := p.ebClient.DescribeApplicationVersions(ctx, &elasticbeanstalk.DescribeApplicationVersionsInput{
+		ApplicationName: aws.String(m.Application.Name),
+		VersionLabels:   []string{versionLabel},
+	})
+
+	// If version exists, delete it first
+	if err == nil && len(existingVersions.ApplicationVersions) > 0 {
+		logging.Info("Deleting existing application version to allow overwrite", "version", versionLabel)
+		_, err = p.ebClient.DeleteApplicationVersion(ctx, &elasticbeanstalk.DeleteApplicationVersionInput{
+			ApplicationName:    aws.String(m.Application.Name),
+			VersionLabel:       aws.String(versionLabel),
+			DeleteSourceBundle: aws.Bool(false), // Keep S3 bundle so we can reuse the same key
+		})
+		if err != nil {
+			// Ignore errors if the version is already being deleted or doesn't exist
+			logging.Info("Could not delete existing version (may be already deleted)", "error", err.Error())
+		}
+	}
+
 	logging.Info("Creating application version", "version", versionLabel)
 
-	_, err := p.ebClient.CreateApplicationVersion(ctx, &elasticbeanstalk.CreateApplicationVersionInput{
+	_, err = p.ebClient.CreateApplicationVersion(ctx, &elasticbeanstalk.CreateApplicationVersionInput{
 		ApplicationName: aws.String(m.Application.Name),
 		VersionLabel:    aws.String(versionLabel),
 		Description:     aws.String(fmt.Sprintf("Deployed by cloud-deploy at %s", time.Now().Format(time.RFC3339))),
