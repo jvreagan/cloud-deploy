@@ -589,7 +589,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 func (p *Provider) uploadDockerCompose(ctx context.Context, m *manifest.Manifest, containerImageURIs map[string]string, bucketName, s3Key string) error {
 	// Build docker-compose.yml structure
 	composeFile := map[string]interface{}{
-		"version": "3.8",
+		"version":  "3.8",
 		"services": make(map[string]interface{}),
 	}
 
