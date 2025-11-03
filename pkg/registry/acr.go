@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
@@ -59,7 +61,7 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	}
 
 	// Create or get registry
-	fmt.Printf("Ensuring ACR registry exists: %s\n", a.registryName)
+	logging.Info("Ensuring ACR registry exists: %s\n", a.registryName)
 
 	// Try to get existing registry first
 	getResp, err := client.Get(ctx, a.resourceGroup, a.registryName, nil)
@@ -67,7 +69,7 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 
 	if err != nil {
 		// Registry doesn't exist, create it
-		fmt.Printf("Creating ACR registry: %s\n", a.registryName)
+		logging.Info("Creating ACR registry: %s\n", a.registryName)
 
 		poller, err := client.BeginCreate(ctx, a.resourceGroup, a.registryName, armcontainerregistry.Registry{
 			Location: to.Ptr(a.location),
@@ -87,9 +89,9 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 			return nil, fmt.Errorf("failed to create ACR registry: %w", err)
 		}
 		registry = &resp.Registry
-		fmt.Printf("Created ACR registry: %s\n", a.registryName)
+		logging.Info("Created ACR registry: %s\n", a.registryName)
 	} else {
-		fmt.Printf("ACR registry %s already exists\n", a.registryName)
+		logging.Info("ACR registry %s already exists\n", a.registryName)
 		registry = &getResp.Registry
 	}
 
@@ -116,7 +118,7 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	username := *creds.Username
 	password := *creds.Passwords[0].Value
 
-	fmt.Println("Successfully retrieved ACR credentials")
+	logging.Info("Successfully retrieved ACR credentials")
 
 	// Return authenticator with username and password
 	return &authn.Basic{

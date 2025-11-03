@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/daemon"
@@ -51,7 +53,7 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 	imageURIs := make(map[string]string)
 
 	// Load image from Docker daemon once
-	fmt.Printf("Loading image %s from Docker daemon...\n", d.sourceImage)
+	logging.Info("Loading image %s from Docker daemon...\n", d.sourceImage)
 	sourceRef, err := name.ParseReference(d.sourceImage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse source image reference: %w", err)
@@ -61,14 +63,14 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load image from Docker daemon: %w", err)
 	}
-	fmt.Println("Image loaded successfully")
+	logging.Info("Image loaded successfully")
 
 	// Distribute to each registry
 	for _, registry := range d.registries {
-		fmt.Printf("\n=== Distributing to %s ===\n", registry.GetRegistryURL())
+		logging.Info("\n=== Distributing to %s ===\n", registry.GetRegistryURL())
 
 		// Get authenticator
-		fmt.Println("Preparing authentication...")
+		logging.Info("Preparing authentication...")
 		auth, err := registry.GetAuthenticator(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get authenticator for registry %s: %w", registry.GetRegistryURL(), err)
@@ -79,14 +81,14 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse target image reference: %w", err)
 		}
-		fmt.Printf("Target: %s\n", targetRef.Name())
+		logging.Info("Target: %s\n", targetRef.Name())
 
 		// Push image to registry using OCI Distribution API
-		fmt.Printf("Pushing image to %s...\n", registry.GetRegistryURL())
+		logging.Info("Pushing image to %s...\n", registry.GetRegistryURL())
 		if err := remote.Write(targetRef, img, remote.WithAuth(auth), remote.WithContext(ctx)); err != nil {
 			return nil, fmt.Errorf("failed to push image to registry %s: %w", registry.GetRegistryURL(), err)
 		}
-		fmt.Printf("Successfully pushed to %s\n", registry.GetRegistryURL())
+		logging.Info("Successfully pushed to %s\n", registry.GetRegistryURL())
 
 		imageURIs[registry.GetRegistryURL()] = registry.GetImageURI()
 	}

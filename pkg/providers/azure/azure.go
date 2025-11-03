@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -68,7 +70,7 @@ func New(ctx context.Context, subscriptionID, location, resourceGroup string, cr
 
 	// Check if credentials should be loaded from Vault
 	if credConfig != nil && credConfig.Source == "vault" {
-		fmt.Println("Loading Azure credentials from Vault...")
+		logging.Info("Loading Azure credentials from Vault...")
 
 		// Get credentials from Vault using manifest helper
 		vaultCreds, err := m.GetCloudCredentials(ctx)
@@ -77,7 +79,7 @@ func New(ctx context.Context, subscriptionID, location, resourceGroup string, cr
 		}
 
 		if vaultCreds != nil {
-			fmt.Println("✅ Successfully loaded Azure credentials from Vault")
+			logging.Info("✅ Successfully loaded Azure credentials from Vault")
 			cred, err = azidentity.NewClientSecretCredential(
 				vaultCreds.Azure.TenantID,
 				vaultCreds.Azure.ClientID,
@@ -90,7 +92,7 @@ func New(ctx context.Context, subscriptionID, location, resourceGroup string, cr
 		}
 	} else if credentials != nil && credentials.ClientID != "" && credentials.ClientSecret != "" && credentials.TenantID != "" {
 		// Authenticate based on credentials provided in manifest
-		fmt.Println("Using Service Principal authentication from manifest")
+		logging.Info("Using Service Principal authentication from manifest")
 		cred, err = azidentity.NewClientSecretCredential(
 			credentials.TenantID,
 			credentials.ClientID,
@@ -101,7 +103,7 @@ func New(ctx context.Context, subscriptionID, location, resourceGroup string, cr
 			return nil, fmt.Errorf("failed to create service principal credential: %w", err)
 		}
 	} else {
-		fmt.Println("Using Default Azure credentials (Azure CLI or Managed Identity)")
+		logging.Info("Using Default Azure credentials (Azure CLI or Managed Identity)")
 		cred, err = azidentity.NewDefaultAzureCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create default credential: %w", err)
@@ -148,23 +150,7 @@ func (p *Provider) Name() string {
 // 4. Deploys to Azure Container Instances
 // 5. Fetches Vault secrets if configured
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting Azure Container Instances deployment...")
-
-	// Step 0.5: Fetch secrets from Vault if configured
-	if m.Vault != nil && len(m.Secrets) > 0 {
-		vaultSecrets, err := m.FetchVaultSecrets(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch vault secrets: %w", err)
-		}
-
-		// Merge Vault secrets with environment variables
-		if m.EnvironmentVariables == nil {
-			m.EnvironmentVariables = make(map[string]string)
-		}
-		for key, value := range vaultSecrets {
-			m.EnvironmentVariables[key] = value
-		}
-	}
+	logging.Info("Starting Azure Container Instances deployment...")
 
 	// Step 1: Ensure resource group exists
 	if err := p.ensureResourceGroup(ctx); err != nil {
@@ -179,7 +165,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 3: Push image to ACR
-	fmt.Println("\n=== Distributing image to ACR ===")
+	logging.Info("\n=== Distributing image to ACR ===")
 	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, "latest")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ACR registry handler: %w", err)
@@ -195,7 +181,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	imageURI := imageURIs[acrRegistry.GetRegistryURL()]
-	fmt.Printf("Successfully pushed image to ACR: %s\n", imageURI)
+	logging.Info("Successfully pushed image to ACR: %s\n", imageURI)
 
 	// Step 4: Deploy to Azure Container Instances
 	containerGroupName := m.Environment.Name
@@ -205,7 +191,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 5: Wait for container to be running
-	fmt.Println("Waiting for container to be ready...")
+	logging.Info("Waiting for container to be ready...")
 	if err := p.waitForContainerGroup(ctx, containerGroupName); err != nil {
 		return nil, fmt.Errorf("container group deployment failed: %w", err)
 	}
@@ -226,7 +212,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 // - Terminating the container group
 // - Optionally removing the container registry
 func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
-	fmt.Printf("Terminating container group: %s\n", m.Environment.Name)
+	logging.Info("Terminating container group: %s\n", m.Environment.Name)
 
 	poller, err := p.containerClient.BeginDelete(ctx, p.resourceGroup, m.Environment.Name, nil)
 	if err != nil {
@@ -238,7 +224,7 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 		return fmt.Errorf("failed to delete container group: %w", err)
 	}
 
-	fmt.Println("Container group terminated successfully")
+	logging.Info("Container group terminated successfully")
 	return nil
 }
 
@@ -247,8 +233,8 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 // This method deletes the container group, which effectively stops it.
 // You can restart by running Deploy again.
 func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
-	fmt.Printf("Stopping container group: %s\n", m.Environment.Name)
-	fmt.Println("Note: Azure Container Instances will be deleted (restart with 'deploy' command)")
+	logging.Info("Stopping container group: %s\n", m.Environment.Name)
+	logging.Info("Note: Azure Container Instances will be deleted (restart with 'deploy' command)")
 
 	return p.Destroy(ctx, m)
 }
@@ -294,7 +280,7 @@ func (p *Provider) Status(ctx context.Context, m *manifest.Manifest) (*types.Dep
 // Rollback rolls back the Azure Container Instance to the previous image version.
 // This is achieved by redeploying with the previous image tag from ACR.
 func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting Azure Container Instances rollback...")
+	logging.Info("Starting Azure Container Instances rollback...")
 
 	// Step 1: Get current container group to find current image
 	resp, err := p.containerClient.Get(ctx, p.resourceGroup, m.Environment.Name, nil)
@@ -308,7 +294,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 	}
 
 	currentImage := *containerGroup.Properties.Containers[0].Properties.Image
-	fmt.Printf("Current image: %s\n", currentImage)
+	logging.Info("Current image: %s\n", currentImage)
 
 	// Step 2: List all images in ACR to find previous version
 	registryName := p.generateRegistryName(m.Application.Name)
@@ -319,7 +305,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 		return nil, fmt.Errorf("failed to find previous image: %w", err)
 	}
 
-	fmt.Printf("Rolling back to previous image: %s\n", previousImage)
+	logging.Info("Rolling back to previous image: %s\n", previousImage)
 
 	// Step 3: Update container group with previous image
 	containerGroup.Properties.Containers[0].Properties.Image = to.Ptr(previousImage)
@@ -355,7 +341,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 
 // ensureResourceGroup creates the resource group if it doesn't exist.
 func (p *Provider) ensureResourceGroup(ctx context.Context) error {
-	fmt.Printf("Ensuring resource group exists: %s\n", p.resourceGroup)
+	logging.Info("Ensuring resource group exists: %s\n", p.resourceGroup)
 
 	_, err := p.resourceGroupClient.CreateOrUpdate(ctx, p.resourceGroup, armresources.ResourceGroup{
 		Location: to.Ptr(p.location),
@@ -395,7 +381,7 @@ func (p *Provider) generateRegistryName(appName string) string {
 // ensureContainerRegistry creates or gets an Azure Container Registry.
 // Returns the login server URL and admin password.
 func (p *Provider) ensureContainerRegistry(ctx context.Context, registryName string) (string, string, error) {
-	fmt.Printf("Ensuring container registry exists: %s\n", registryName)
+	logging.Info("Ensuring container registry exists: %s\n", registryName)
 
 	// Check if registry exists
 	_, err := p.registryClient.Get(ctx, p.resourceGroup, registryName, nil)
@@ -405,7 +391,7 @@ func (p *Provider) ensureContainerRegistry(ctx context.Context, registryName str
 	}
 
 	// Create registry
-	fmt.Printf("Creating new container registry: %s\n", registryName)
+	logging.Info("Creating new container registry: %s\n", registryName)
 	poller, err := p.registryClient.BeginCreate(ctx, p.resourceGroup, registryName, armcontainerregistry.Registry{
 		Location: to.Ptr(p.location),
 		SKU: &armcontainerregistry.SKU{
@@ -454,7 +440,7 @@ func (p *Provider) getRegistryCredentials(ctx context.Context, registryName stri
 
 // deployContainerGroup creates or updates an Azure Container Instance.
 func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifest, name, image, registryName, registryPassword string) (string, error) {
-	fmt.Printf("Deploying container group: %s\n", name)
+	logging.Info("Deploying container group: %s\n", name)
 
 	// Build environment variables
 	envVars := make([]*armcontainerinstance.EnvironmentVariable, 0, len(m.EnvironmentVariables))
@@ -595,7 +581,7 @@ func (p *Provider) waitForContainerGroup(ctx context.Context, name string) error
 				state = *resp.Properties.ProvisioningState
 			}
 
-			fmt.Printf("Container group status: %s\n", state)
+			logging.Info("Container group status: %s\n", state)
 
 			if state == "Succeeded" {
 				// Check if container is running

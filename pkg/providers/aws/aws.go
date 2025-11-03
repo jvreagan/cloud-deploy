@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
 	"github.com/jvreagan/cloud-deploy/pkg/registry"
 	"github.com/jvreagan/cloud-deploy/pkg/types"
@@ -46,7 +47,7 @@ func New(ctx context.Context, region string, creds *manifest.CredentialsConfig, 
 
 	// Check if credentials should be loaded from Vault
 	if creds != nil && creds.Source == "vault" {
-		fmt.Println("Loading AWS credentials from Vault...")
+		logging.Info("Loading AWS credentials from Vault")
 
 		// Get credentials from Vault using manifest helper
 		vaultCreds, err := m.GetCloudCredentials(ctx)
@@ -66,7 +67,7 @@ func New(ctx context.Context, region string, creds *manifest.CredentialsConfig, 
 		}
 	} else if creds != nil && creds.AccessKeyID != "" && creds.SecretAccessKey != "" {
 		// Credentials provided directly in manifest
-		fmt.Println("Using AWS credentials from manifest")
+		logging.Info("Using AWS credentials from manifest")
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(region),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
@@ -77,7 +78,7 @@ func New(ctx context.Context, region string, creds *manifest.CredentialsConfig, 
 		)
 	} else {
 		// Fall back to default credential chain
-		fmt.Println("Using AWS default credential chain")
+		logging.Info("Using AWS default credential chain")
 		cfg, err = config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	}
 
@@ -100,28 +101,11 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to AWS Elastic Beanstalk.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting AWS Elastic Beanstalk deployment...")
+	logging.Info("Starting AWS Elastic Beanstalk deployment")
 
 	// Step 0: Auto-detect solution stack if not specified
 	if err := p.ensureSolutionStack(ctx, m); err != nil {
 		return nil, fmt.Errorf("failed to determine solution stack: %w", err)
-	}
-
-	// Step 0.5: Fetch secrets from Vault if configured
-	if m.Vault != nil && len(m.Secrets) > 0 {
-		vaultSecrets, err := m.FetchVaultSecrets(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch vault secrets: %w", err)
-		}
-
-		// Merge Vault secrets with environment variables
-		// Vault secrets take precedence over manifest environment variables
-		if m.EnvironmentVariables == nil {
-			m.EnvironmentVariables = make(map[string]string)
-		}
-		for key, value := range vaultSecrets {
-			m.EnvironmentVariables[key] = value
-		}
 	}
 
 	// Step 1: Create or verify application exists
@@ -130,7 +114,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 2: Push image to ECR
-	fmt.Println("\n=== Distributing image to ECR ===")
+	logging.Info("Distributing image to ECR")
 	ecrRegistry, err := registry.NewECRRegistry(p.config, p.region, m.Application.Name, "latest")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ECR registry: %w", err)
@@ -146,7 +130,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	imageURI := imageURIs[ecrRegistry.GetRegistryURL()]
-	fmt.Printf("Image pushed to ECR: %s\n", imageURI)
+	logging.Info("Image pushed to ECR", "image_uri", imageURI)
 
 	// Step 3: Create S3 bucket for application versions
 	bucketName := fmt.Sprintf("elasticbeanstalk-%s-%s", p.region, m.Application.Name)
@@ -174,19 +158,19 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	if envExists {
-		fmt.Printf("Updating existing environment: %s\n", m.Environment.Name)
+		logging.Info("Updating existing environment", "environment", m.Environment.Name)
 		if err := p.updateEnvironment(ctx, m, versionLabel); err != nil {
 			return nil, fmt.Errorf("failed to update environment: %w", err)
 		}
 	} else {
-		fmt.Printf("Creating new environment: %s\n", m.Environment.Name)
+		logging.Info("Creating new environment", "environment", m.Environment.Name)
 		if err := p.createEnvironment(ctx, m, versionLabel); err != nil {
 			return nil, fmt.Errorf("failed to create environment: %w", err)
 		}
 	}
 
 	// Step 6: Wait for environment to be ready
-	fmt.Println("Waiting for environment to be ready...")
+	logging.Info("Waiting for environment to be ready")
 	url, err := p.waitForEnvironment(ctx, m.Application.Name, m.Environment.Name)
 	if err != nil {
 		return nil, fmt.Errorf("environment deployment failed: %w", err)
@@ -203,7 +187,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 
 // Destroy terminates an AWS Elastic Beanstalk environment and optionally the application.
 func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
-	fmt.Printf("Terminating environment: %s\n", m.Environment.Name)
+	logging.Info("Terminating environment", "environment", m.Environment.Name)
 
 	_, err := p.ebClient.TerminateEnvironment(ctx, &elasticbeanstalk.TerminateEnvironmentInput{
 		EnvironmentName: aws.String(m.Environment.Name),
@@ -212,12 +196,12 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 		return fmt.Errorf("failed to terminate environment: %w", err)
 	}
 
-	fmt.Println("Waiting for environment termination...")
+	logging.Info("Waiting for environment termination")
 	if err := p.waitForEnvironmentTermination(ctx, m.Application.Name, m.Environment.Name); err != nil {
 		return fmt.Errorf("failed to wait for termination: %w", err)
 	}
 
-	fmt.Println("Environment terminated successfully")
+	logging.Info("Environment terminated successfully")
 	return nil
 }
 
@@ -225,8 +209,8 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 // This terminates all running resources (EC2 instances, load balancers, etc.) to stop costs,
 // but keeps the application definition and version artifacts in S3 for fast redeployment.
 func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
-	fmt.Printf("Stopping environment: %s\n", m.Environment.Name)
-	fmt.Println("This will terminate all resources but preserve the application for fast restart.")
+	logging.Info("Stopping environment", "environment", m.Environment.Name)
+	logging.Info("This will terminate all resources but preserve the application for fast restart")
 
 	_, err := p.ebClient.TerminateEnvironment(ctx, &elasticbeanstalk.TerminateEnvironmentInput{
 		EnvironmentName: aws.String(m.Environment.Name),
@@ -235,14 +219,14 @@ func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
 		return fmt.Errorf("failed to terminate environment: %w", err)
 	}
 
-	fmt.Println("Waiting for environment termination...")
+	logging.Info("Waiting for environment termination")
 	if err := p.waitForEnvironmentTermination(ctx, m.Application.Name, m.Environment.Name); err != nil {
 		return fmt.Errorf("failed to wait for termination: %w", err)
 	}
 
-	fmt.Println("Environment stopped successfully")
-	fmt.Printf("Application '%s' and versions are preserved in S3\n", m.Application.Name)
-	fmt.Println("Run 'cloud-deploy -command deploy' to restart")
+	logging.Info("Environment stopped successfully")
+	logging.Info("Application and versions are preserved in S3", "application", m.Application.Name)
+	logging.Info("Run 'cloud-deploy -command deploy' to restart")
 	return nil
 }
 
@@ -282,12 +266,12 @@ func (p *Provider) Status(ctx context.Context, m *manifest.Manifest) (*types.Dep
 func (p *Provider) ensureSolutionStack(ctx context.Context, m *manifest.Manifest) error {
 	// If already specified, validate and use it
 	if m.Deployment.SolutionStack != "" {
-		fmt.Printf("Using specified solution stack: %s\n", m.Deployment.SolutionStack)
+		logging.Info("Using specified solution stack", "stack", m.Deployment.SolutionStack)
 		return nil
 	}
 
 	// Auto-detect based on platform
-	fmt.Printf("Auto-detecting solution stack for platform: %s\n", m.Deployment.Platform)
+	logging.Info("Auto-detecting solution stack for platform", "platform", m.Deployment.Platform)
 
 	result, err := p.ebClient.ListAvailableSolutionStacks(ctx, &elasticbeanstalk.ListAvailableSolutionStacksInput{})
 	if err != nil {
@@ -312,7 +296,7 @@ func (p *Provider) ensureSolutionStack(ctx context.Context, m *manifest.Manifest
 
 	// Select the first one (AWS returns them in descending version order, so first = latest)
 	m.Deployment.SolutionStack = candidates[0]
-	fmt.Printf("Auto-selected solution stack: %s\n", m.Deployment.SolutionStack)
+	logging.Info("Auto-selected solution stack", "stack", m.Deployment.SolutionStack)
 
 	return nil
 }
@@ -328,12 +312,12 @@ func (p *Provider) ensureApplication(ctx context.Context, m *manifest.Manifest) 
 	}
 
 	if len(result.Applications) > 0 {
-		fmt.Printf("Application already exists: %s\n", m.Application.Name)
+		logging.Info("Application already exists", "application", m.Application.Name)
 		return nil
 	}
 
 	// Create application
-	fmt.Printf("Creating application: %s\n", m.Application.Name)
+	logging.Info("Creating application", "application", m.Application.Name)
 	_, err = p.ebClient.CreateApplication(ctx, &elasticbeanstalk.CreateApplicationInput{
 		ApplicationName: aws.String(m.Application.Name),
 		Description:     aws.String(m.Application.Description),
@@ -348,12 +332,12 @@ func (p *Provider) ensureBucket(ctx context.Context, bucketName string) error {
 		Bucket: aws.String(bucketName),
 	})
 	if err == nil {
-		fmt.Printf("S3 bucket already exists: %s\n", bucketName)
+		logging.Info("S3 bucket already exists", "bucket", bucketName)
 		return nil
 	}
 
 	// Create bucket
-	fmt.Printf("Creating S3 bucket: %s\n", bucketName)
+	logging.Info("Creating S3 bucket", "bucket", bucketName)
 
 	// For regions other than us-east-1, we need to specify LocationConstraint
 	createBucketInput := &s3.CreateBucketInput{
@@ -372,7 +356,7 @@ func (p *Provider) ensureBucket(ctx context.Context, bucketName string) error {
 
 // uploadSource zips the source directory and uploads it to S3.
 func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3Key string) error {
-	fmt.Println("Zipping source code...")
+	logging.Info("Zipping source code")
 
 	// Create temporary zip file
 	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")
@@ -393,7 +377,7 @@ func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3K
 	}
 
 	// Upload to S3
-	fmt.Printf("Uploading to S3: s3://%s/%s\n", bucketName, s3Key)
+	logging.Info("Uploading to S3", "bucket", bucketName, "key", s3Key)
 	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),
@@ -404,7 +388,7 @@ func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3K
 
 // uploadDockerrun creates a Dockerrun.aws.json file for the ECR image and uploads it to S3.
 func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, imageURI, bucketName, s3Key string) error {
-	fmt.Println("Creating Dockerrun.aws.json...")
+	logging.Info("Creating Dockerrun.aws.json")
 
 	// Build port mappings from manifest
 	var ports []map[string]interface{}
@@ -419,7 +403,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 				"HostPort":      hostPort,
 			})
 		}
-		fmt.Printf("Using ports from manifest: %v\n", m.Ports)
+			logging.Debug("Using ports from manifest", "ports", m.Ports)
 	} else {
 		// Default to port 80 if no ports specified
 		ports = []map[string]interface{}{
@@ -428,7 +412,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 				"HostPort":      80,
 			},
 		}
-		fmt.Println("No ports specified in manifest, using default port 80")
+		logging.Debug("No ports specified in manifest, using default port 80")
 	}
 
 	// Create Dockerrun.aws.json structure
@@ -460,7 +444,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 		return fmt.Errorf("failed to write Dockerrun.aws.json: %w", err)
 	}
 
-	fmt.Printf("Dockerrun.aws.json created with image: %s\n", imageURI)
+	logging.Info("Dockerrun.aws.json created", "image_uri", imageURI)
 
 	// Create temporary zip file
 	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")
@@ -481,7 +465,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 	}
 
 	// Upload to S3
-	fmt.Printf("Uploading Dockerrun.aws.json to S3: s3://%s/%s\n", bucketName, s3Key)
+	logging.Info("Uploading Dockerrun.aws.json to S3", "bucket", bucketName, "key", s3Key)
 	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),
@@ -492,7 +476,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 
 // createApplicationVersion creates a new application version.
 func (p *Provider) createApplicationVersion(ctx context.Context, m *manifest.Manifest, versionLabel, bucketName, s3Key string) error {
-	fmt.Printf("Creating application version: %s\n", versionLabel)
+	logging.Info("Creating application version", "version", versionLabel)
 
 	_, err := p.ebClient.CreateApplicationVersion(ctx, &elasticbeanstalk.CreateApplicationVersionInput{
 		ApplicationName: aws.String(m.Application.Name),
@@ -689,11 +673,17 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 						Value:      aws.String(sslCertificateId),
 					},
 				)
-				fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s) with ACM cert\n",
-					port.ContainerPort, protocol, instancePort, instanceProtocol)
+				logging.Info("Configuring ELB listener with ACM cert",
+					"container_port", port.ContainerPort,
+					"protocol", protocol,
+					"instance_port", instancePort,
+					"instance_protocol", instanceProtocol)
 			} else {
-				fmt.Printf("Configuring ELB listener: port %d (%s) -> instance port %d (%s)\n",
-					port.ContainerPort, protocol, instancePort, instanceProtocol)
+				logging.Info("Configuring ELB listener",
+					"container_port", port.ContainerPort,
+					"protocol", protocol,
+					"instance_port", instancePort,
+					"instance_protocol", instanceProtocol)
 			}
 		}
 	}
@@ -735,7 +725,7 @@ func (p *Provider) waitForEnvironment(ctx context.Context, appName, envName stri
 			}
 
 			env := result.Environments[0]
-			fmt.Printf("Environment status: %s, Health: %s\n", env.Status, env.Health)
+			logging.Info("Environment status update", "status", env.Status, "health", env.Health)
 
 			if env.Status == ebtypes.EnvironmentStatusReady {
 				if env.CNAME != nil {
@@ -772,17 +762,17 @@ func (p *Provider) waitForEnvironmentTermination(ctx context.Context, appName, e
 			}
 
 			if len(result.Environments) == 0 {
-				fmt.Println("Environment terminated")
+				logging.Info("Environment terminated")
 				return nil
 			}
 
 			env := result.Environments[0]
 			if env.Status == ebtypes.EnvironmentStatusTerminated {
-				fmt.Println("Environment terminated")
+				logging.Info("Environment terminated")
 				return nil
 			}
 
-			fmt.Printf("Termination status: %s\n", env.Status)
+			logging.Info("Termination status", "status", env.Status)
 		}
 	}
 }
@@ -833,7 +823,7 @@ func zipDirectory(sourceDir string, zipFile *os.File) error {
 
 // Rollback rolls back the AWS Elastic Beanstalk environment to the previous application version.
 func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting AWS Elastic Beanstalk rollback...")
+	logging.Info("Starting AWS Elastic Beanstalk rollback")
 
 	// Step 1: Get current environment to find the deployed version
 	envResult, err := p.ebClient.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{
@@ -853,7 +843,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 		return nil, fmt.Errorf("current environment has no version label")
 	}
 
-	fmt.Printf("Current version: %s\n", *currentVersion)
+	logging.Info("Current version", "version", *currentVersion)
 
 	// Step 2: List all application versions (sorted by creation date)
 	versionsResult, err := p.ebClient.DescribeApplicationVersions(ctx, &elasticbeanstalk.DescribeApplicationVersionsInput{
@@ -918,7 +908,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 		return nil, fmt.Errorf("no previous version found to rollback to")
 	}
 
-	fmt.Printf("Rolling back to previous version: %s\n", *previousVersion)
+	logging.Info("Rolling back to previous version", "version", *previousVersion)
 
 	// Step 4: Update environment to use the previous version
 	_, err = p.ebClient.UpdateEnvironment(ctx, &elasticbeanstalk.UpdateEnvironmentInput{
@@ -930,7 +920,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 	}
 
 	// Step 5: Wait for environment to be ready
-	fmt.Println("Waiting for rollback to complete...")
+	logging.Info("Waiting for rollback to complete")
 	url, err := p.waitForEnvironment(ctx, m.Application.Name, m.Environment.Name)
 	if err != nil {
 		return nil, fmt.Errorf("rollback failed: %w", err)

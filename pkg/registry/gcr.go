@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"golang.org/x/oauth2/google"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
@@ -71,7 +73,7 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	}
 
 	// Create repository if it doesn't exist
-	fmt.Printf("Ensuring Artifact Registry repository exists: %s\n", g.repositoryName)
+	logging.Info("Ensuring Artifact Registry repository exists: %s\n", g.repositoryName)
 
 	parent := fmt.Sprintf("projects/%s/locations/%s", g.projectID, g.region)
 	repoName := fmt.Sprintf("%s/repositories/%s", parent, g.repositoryName)
@@ -80,7 +82,7 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	_, err = client.Projects.Locations.Repositories.Get(repoName).Context(ctx).Do()
 	if err != nil {
 		// Repository doesn't exist, create it
-		fmt.Printf("Creating Artifact Registry repository: %s\n", g.repositoryName)
+		logging.Info("Creating Artifact Registry repository: %s\n", g.repositoryName)
 
 		repo := &artifactregistry.Repository{
 			Format:      "DOCKER",
@@ -96,12 +98,12 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 			if !strings.Contains(err.Error(), "already exists") {
 				return nil, fmt.Errorf("failed to create Artifact Registry repository: %w", err)
 			}
-			fmt.Printf("Repository %s already exists\n", g.repositoryName)
+			logging.Info("Repository %s already exists\n", g.repositoryName)
 		} else {
-			fmt.Printf("Created Artifact Registry repository: %s\n", g.repositoryName)
+			logging.Info("Created Artifact Registry repository: %s\n", g.repositoryName)
 		}
 	} else {
-		fmt.Printf("Artifact Registry repository %s already exists\n", g.repositoryName)
+		logging.Info("Artifact Registry repository %s already exists\n", g.repositoryName)
 	}
 
 	// Get OAuth2 token source from service account credentials
@@ -121,7 +123,7 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 		return nil, fmt.Errorf("failed to get OAuth2 token: %w", err)
 	}
 
-	fmt.Println("Successfully retrieved GCR OAuth2 credentials")
+	logging.Info("Successfully retrieved GCR OAuth2 credentials")
 
 	// Return authenticator with oauth2accesstoken as username and token as password
 	return &authn.Basic{

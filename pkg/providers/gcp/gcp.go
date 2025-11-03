@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"cloud.google.com/go/cloudbuild/apiv1/v2"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/logging/logadmin"
@@ -66,14 +68,14 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 		publicAccess = *config.PublicAccess
 	}
 
-	fmt.Printf("Initializing GCP provider for project: %s\n", projectID)
+	logging.Info("Initializing GCP provider for project: %s\n", projectID)
 
 	// Check if credentials should be loaded from Vault
 	var credOption option.ClientOption
 	var err error
 
 	if config.Credentials != nil && config.Credentials.Source == "vault" {
-		fmt.Println("Loading GCP credentials from Vault...")
+		logging.Info("Loading GCP credentials from Vault...")
 
 		// Get credentials from Vault using manifest helper
 		vaultCreds, err := m.GetCloudCredentials(ctx)
@@ -82,7 +84,7 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 		}
 
 		if vaultCreds != nil && vaultCreds.GCP.ServiceAccountKey != "" {
-			fmt.Println("✅ Successfully loaded GCP credentials from Vault")
+			logging.Info("✅ Successfully loaded GCP credentials from Vault")
 			credOption = option.WithCredentialsJSON([]byte(vaultCreds.GCP.ServiceAccountKey))
 		}
 	} else {
@@ -181,7 +183,7 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 		return nil, fmt.Errorf("failed to enable required APIs: %w", err)
 	}
 
-	fmt.Println("GCP provider initialized successfully")
+	logging.Info("GCP provider initialized successfully")
 	return provider, nil
 }
 
@@ -192,27 +194,10 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to Google Cloud Run.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting Google Cloud Run deployment...")
-
-	// Step 0.5: Fetch secrets from Vault if configured
-	if m.Vault != nil && len(m.Secrets) > 0 {
-		vaultSecrets, err := m.FetchVaultSecrets(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch vault secrets: %w", err)
-		}
-
-		// Merge Vault secrets with environment variables
-		// Vault secrets take precedence over manifest environment variables
-		if m.EnvironmentVariables == nil {
-			m.EnvironmentVariables = make(map[string]string)
-		}
-		for key, value := range vaultSecrets {
-			m.EnvironmentVariables[key] = value
-		}
-	}
+	logging.Info("Starting Google Cloud Run deployment...")
 
 	// Step 1: Push image to GCR (Artifact Registry)
-	fmt.Println("\n=== Distributing image to GCR ===")
+	logging.Info("\n=== Distributing image to GCR ===")
 
 	// Get credentials JSON for GCR authentication
 	var credsJSON string
@@ -238,7 +223,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	imageURI := imageURIs[gcrRegistry.GetRegistryURL()]
-	fmt.Printf("Successfully pushed image to GCR: %s\n", imageURI)
+	logging.Info("Successfully pushed image to GCR: %s\n", imageURI)
 
 	// Step 2: Deploy to Cloud Run
 	serviceName := m.Environment.Name
@@ -249,13 +234,13 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	// Step 3: Configure Cloud Logging if enabled
 	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.Enabled {
 		if err := p.configureLogging(ctx, m); err != nil {
-			fmt.Printf("Warning: failed to configure Cloud Logging: %v\n", err)
+			logging.Info("Warning: failed to configure Cloud Logging: %v\n", err)
 			// Don't fail deployment if logging configuration fails
 		}
 	}
 
 	// Step 4: Wait for service to be ready
-	fmt.Println("Waiting for service to be ready...")
+	logging.Info("Waiting for service to be ready...")
 	url, err := p.waitForService(ctx, serviceName)
 	if err != nil {
 		return nil, fmt.Errorf("service deployment failed for %s: %w", serviceName, err)
@@ -275,7 +260,7 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 	serviceName := m.Environment.Name
 	parent := fmt.Sprintf("projects/%s/locations/%s/services/%s", p.projectID, p.region, serviceName)
 
-	fmt.Printf("Deleting Cloud Run service: %s\n", serviceName)
+	logging.Info("Deleting Cloud Run service: %s\n", serviceName)
 
 	req := &runpb.DeleteServiceRequest{
 		Name: parent,
@@ -291,7 +276,7 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 		return fmt.Errorf("failed to wait for service deletion: %w", err)
 	}
 
-	fmt.Println("Service deleted successfully")
+	logging.Info("Service deleted successfully")
 	return nil
 }
 
@@ -303,8 +288,8 @@ func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
 	serviceName := m.Environment.Name
 	parent := fmt.Sprintf("projects/%s/locations/%s/services/%s", p.projectID, p.region, serviceName)
 
-	fmt.Printf("Stopping Cloud Run service: %s\n", serviceName)
-	fmt.Println("This will delete the service but preserve container images for fast restart.")
+	logging.Info("Stopping Cloud Run service: %s\n", serviceName)
+	logging.Info("This will delete the service but preserve container images for fast restart.")
 
 	req := &runpb.DeleteServiceRequest{
 		Name: parent,
@@ -320,9 +305,9 @@ func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
 		return fmt.Errorf("failed to wait for service deletion: %w", err)
 	}
 
-	fmt.Println("Service stopped successfully")
-	fmt.Println("Container images are preserved in Artifact Registry")
-	fmt.Println("Run 'cloud-deploy -command deploy' to restart")
+	logging.Info("Service stopped successfully")
+	logging.Info("Container images are preserved in Artifact Registry")
+	logging.Info("Run 'cloud-deploy -command deploy' to restart")
 	return nil
 }
 
@@ -451,7 +436,7 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 	}
 
 	if serviceExists {
-		fmt.Printf("Updating existing service: %s\n", serviceName)
+		logging.Info("Updating existing service: %s\n", serviceName)
 
 		// For updates, set the name
 		service.Name = serviceFullName
@@ -475,7 +460,7 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 			return fmt.Errorf("failed to wait for service update: %w", err)
 		}
 	} else {
-		fmt.Printf("Creating new service: %s\n", serviceName)
+		logging.Info("Creating new service: %s\n", serviceName)
 
 		req := &runpb.CreateServiceRequest{
 			Parent:    parent,
@@ -499,7 +484,7 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 		return fmt.Errorf("failed to set IAM policy: %w", err)
 	}
 
-	fmt.Println("Service deployed successfully")
+	logging.Info("Service deployed successfully")
 	return nil
 }
 
@@ -507,11 +492,11 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 // If publicAccess is true, makes the service publicly accessible (unauthenticated access).
 func (p *Provider) setServiceIAMPolicy(ctx context.Context, serviceName string) error {
 	if !p.publicAccess {
-		fmt.Println("Public access disabled - service requires authentication")
+		logging.Info("Public access disabled - service requires authentication")
 		return nil
 	}
 
-	fmt.Println("Configuring service for public access...")
+	logging.Info("Configuring service for public access...")
 
 	// Get current IAM policy
 	getPolicyReq := &iampb.GetIamPolicyRequest{
@@ -562,7 +547,7 @@ func (p *Provider) setServiceIAMPolicy(ctx context.Context, serviceName string) 
 		return fmt.Errorf("failed to set IAM policy: %w", err)
 	}
 
-	fmt.Println("Service configured for public access")
+	logging.Info("Service configured for public access")
 	return nil
 }
 
@@ -590,13 +575,13 @@ func loadCredentials(creds *manifest.CredentialsConfig) (option.ClientOption, er
 
 	// Option 1: Load from file path
 	if creds.ServiceAccountKeyPath != "" {
-		fmt.Printf("Loading credentials from: %s\n", creds.ServiceAccountKeyPath)
+		logging.Info("Loading credentials from: %s\n", creds.ServiceAccountKeyPath)
 		return option.WithCredentialsFile(creds.ServiceAccountKeyPath), nil
 	}
 
 	// Option 2: Load from JSON string
 	if creds.ServiceAccountKeyJSON != "" {
-		fmt.Println("Loading credentials from manifest JSON")
+		logging.Info("Loading credentials from manifest JSON")
 		return option.WithCredentialsJSON([]byte(creds.ServiceAccountKeyJSON)), nil
 	}
 
@@ -605,17 +590,17 @@ func loadCredentials(creds *manifest.CredentialsConfig) (option.ClientOption, er
 
 // ensureProject creates the GCP project if it doesn't exist.
 func (p *Provider) ensureProject(ctx context.Context) error {
-	fmt.Printf("Checking if project exists: %s\n", p.projectID)
+	logging.Info("Checking if project exists: %s\n", p.projectID)
 
 	// Check if project exists
 	project, err := p.projectsClient.Projects.Get(p.projectID).Context(ctx).Do()
 	if err == nil && project != nil {
-		fmt.Printf("Project already exists: %s (state: %s)\n", p.projectID, project.LifecycleState)
+		logging.Info("Project already exists: %s (state: %s)\n", p.projectID, project.LifecycleState)
 		return nil
 	}
 
 	// Project doesn't exist, create it
-	fmt.Printf("Creating project: %s\n", p.projectID)
+	logging.Info("Creating project: %s\n", p.projectID)
 
 	newProject := &cloudresourcemanager.Project{
 		ProjectId: p.projectID,
@@ -636,13 +621,13 @@ func (p *Provider) ensureProject(ctx context.Context) error {
 	}
 
 	// Wait for project creation to complete with polling
-	fmt.Println("Waiting for project creation to complete...")
+	logging.Info("Waiting for project creation to complete...")
 	return p.waitForProjectCreation(ctx, op.Name)
 }
 
 // ensureBillingLinked links the billing account to the project.
 func (p *Provider) ensureBillingLinked(ctx context.Context) error {
-	fmt.Println("Checking billing account linkage...")
+	logging.Info("Checking billing account linkage...")
 
 	projectName := fmt.Sprintf("projects/%s", p.projectID)
 
@@ -654,12 +639,12 @@ func (p *Provider) ensureBillingLinked(ctx context.Context) error {
 
 	// Check if billing is already enabled
 	if billingInfo.BillingEnabled {
-		fmt.Printf("Billing already enabled for project (account: %s)\n", billingInfo.BillingAccountName)
+		logging.Info("Billing already enabled for project (account: %s)\n", billingInfo.BillingAccountName)
 		return nil
 	}
 
 	// Link billing account
-	fmt.Printf("Linking billing account: %s\n", p.billingAccount)
+	logging.Info("Linking billing account: %s\n", p.billingAccount)
 
 	billingAccountName := fmt.Sprintf("billingAccounts/%s", p.billingAccount)
 	updateReq := &cloudbilling.ProjectBillingInfo{
@@ -671,7 +656,7 @@ func (p *Provider) ensureBillingLinked(ctx context.Context) error {
 		return fmt.Errorf("failed to link billing account: %w", err)
 	}
 
-	fmt.Println("Billing account linked successfully")
+	logging.Info("Billing account linked successfully")
 	return nil
 }
 
@@ -685,7 +670,7 @@ func (p *Provider) ensureAPIsEnabled(ctx context.Context) error {
 		"serviceusage.googleapis.com",
 	}
 
-	fmt.Println("Enabling required GCP APIs...")
+	logging.Info("Enabling required GCP APIs...")
 
 	for _, api := range requiredAPIs {
 		serviceName := fmt.Sprintf("projects/%s/services/%s", p.projectID, api)
@@ -693,12 +678,12 @@ func (p *Provider) ensureAPIsEnabled(ctx context.Context) error {
 		// Check if API is already enabled
 		service, err := p.usageClient.Services.Get(serviceName).Context(ctx).Do()
 		if err == nil && service.State == "ENABLED" {
-			fmt.Printf("  ✓ %s (already enabled)\n", api)
+			logging.Info("  ✓ %s (already enabled)\n", api)
 			continue
 		}
 
 		// Enable the API
-		fmt.Printf("  → Enabling %s...\n", api)
+		logging.Info("  → Enabling %s...\n", api)
 		enableReq := &serviceusage.EnableServiceRequest{}
 		op, err := p.usageClient.Services.Enable(serviceName, enableReq).Context(ctx).Do()
 		if err != nil {
@@ -712,10 +697,10 @@ func (p *Provider) ensureAPIsEnabled(ctx context.Context) error {
 			}
 		}
 
-		fmt.Printf("  ✓ %s (enabled)\n", api)
+		logging.Info("  ✓ %s (enabled)\n", api)
 	}
 
-	fmt.Println("All required APIs enabled")
+	logging.Info("All required APIs enabled")
 	return nil
 }
 
@@ -740,11 +725,11 @@ func (p *Provider) waitForProjectCreation(ctx context.Context, operationName str
 				if op.Error != nil {
 					return fmt.Errorf("project creation failed: %s", op.Error.Message)
 				}
-				fmt.Printf("Project created successfully: %s\n", p.projectID)
+				logging.Info("Project created successfully: %s\n", p.projectID)
 				return nil
 			}
 
-			fmt.Println("  Still creating project...")
+			logging.Info("  Still creating project...")
 		}
 	}
 }
@@ -770,11 +755,11 @@ func (p *Provider) waitForAPIEnablement(ctx context.Context, operationName, apiN
 				if op.Error != nil {
 					return fmt.Errorf("API enablement failed: %s", op.Error.Message)
 				}
-				fmt.Printf("    API %s enabled successfully\n", apiName)
+				logging.Info("    API %s enabled successfully\n", apiName)
 				return nil
 			}
 
-			fmt.Printf("    Waiting for %s to be enabled...\n", apiName)
+			logging.Info("    Waiting for %s to be enabled...\n", apiName)
 		}
 	}
 }
@@ -804,10 +789,10 @@ func (p *Provider) waitForService(ctx context.Context, serviceName string) (stri
 			// Check terminal condition
 			if service.TerminalCondition != nil {
 				status := service.TerminalCondition.State.String()
-				fmt.Printf("Service status: %s\n", status)
+				logging.Info("Service status: %s\n", status)
 
 				if service.TerminalCondition.State == runpb.Condition_CONDITION_SUCCEEDED {
-					fmt.Println("Service is ready!")
+					logging.Info("Service is ready!")
 					return service.Uri, nil
 				}
 
@@ -820,33 +805,33 @@ func (p *Provider) waitForService(ctx context.Context, serviceName string) (stri
 				}
 			}
 
-			fmt.Println("  Service is still deploying...")
+			logging.Info("  Service is still deploying...")
 		}
 	}
 }
 
 // configureLogging sets up Cloud Logging for the Cloud Run service.
 func (p *Provider) configureLogging(ctx context.Context, m *manifest.Manifest) error {
-	fmt.Println("Configuring Cloud Logging...")
+	logging.Info("Configuring Cloud Logging...")
 
 	// Cloud Run automatically sends logs to Cloud Logging
 	// We just need to configure the log retention if specified
 	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.RetentionDays > 0 {
 		// Note: Log retention is set at the bucket level in Cloud Logging
 		// For now, we'll just log that logging is configured
-		fmt.Printf("Cloud Logging configured for service %s\n", m.Environment.Name)
-		fmt.Printf("Logs will be available at: https://console.cloud.google.com/logs/query;query=resource.type%%3D%%22cloud_run_revision%%22%%0Aresource.labels.service_name%%3D%%22%s%%22?project=%s\n",
+		logging.Info("Cloud Logging configured for service %s\n", m.Environment.Name)
+		logging.Info("Logs will be available at: https://console.cloud.google.com/logs/query;query=resource.type%%3D%%22cloud_run_revision%%22%%0Aresource.labels.service_name%%3D%%22%s%%22?project=%s\n",
 			m.Environment.Name, p.projectID)
 
 		// If retention is specified, inform the user they need to configure it in Cloud Console
 		if m.Monitoring.CloudWatchLogs.RetentionDays > 0 {
-			fmt.Printf("Note: To set log retention to %d days, configure it in Cloud Logging settings:\n", m.Monitoring.CloudWatchLogs.RetentionDays)
-			fmt.Printf("  https://console.cloud.google.com/logs/storage?project=%s\n", p.projectID)
+			logging.Info("Note: To set log retention to %d days, configure it in Cloud Logging settings:\n", m.Monitoring.CloudWatchLogs.RetentionDays)
+			logging.Info("  https://console.cloud.google.com/logs/storage?project=%s\n", p.projectID)
 		}
 	}
 
 	// Log the direct log viewing URL
-	fmt.Printf("View logs: gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=%s' --limit 50 --project=%s\n",
+	logging.Info("View logs: gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=%s' --limit 50 --project=%s\n",
 		m.Environment.Name, p.projectID)
 
 	return nil
@@ -854,7 +839,7 @@ func (p *Provider) configureLogging(ctx context.Context, m *manifest.Manifest) e
 
 // Rollback rolls back the GCP Cloud Run service to the previous revision.
 func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	fmt.Println("Starting Google Cloud Run rollback...")
+	logging.Info("Starting Google Cloud Run rollback...")
 
 	serviceName := m.Environment.Name
 	parent := fmt.Sprintf("projects/%s/locations/%s/services/%s", p.projectID, p.region, serviceName)
@@ -885,7 +870,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 		return nil, fmt.Errorf("could not determine current active revision")
 	}
 
-	fmt.Printf("Current revision: %s\n", currentRevision)
+	logging.Info("Current revision: %s\n", currentRevision)
 
 	// Step 2: List all revisions for this service
 	listReq := &runpb.ListRevisionsRequest{
@@ -954,7 +939,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 
 	// Extract just the revision name (last part of the full name)
 	prevRevisionName := previousRevision.Name[strings.LastIndex(previousRevision.Name, "/")+1:]
-	fmt.Printf("Rolling back to previous revision: %s\n", prevRevisionName)
+	logging.Info("Rolling back to previous revision: %s\n", prevRevisionName)
 
 	// Step 4: Update service traffic to route to previous revision
 	service.Traffic = []*runpb.TrafficTarget{
@@ -975,7 +960,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 	}
 
 	// Wait for rollback to complete
-	fmt.Println("Waiting for rollback to complete...")
+	logging.Info("Waiting for rollback to complete...")
 	_, err = op.Wait(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("rollback failed: %w", err)

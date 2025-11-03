@@ -9,14 +9,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/jvreagan/cloud-deploy/pkg/vault"
 )
 
 // Manager handles credential retrieval from various sources
 type Manager struct {
-	Source      string            // "environment", "secrets-manager", "vault", "encrypted-file"
-	Secrets     map[string]string // Maps credential keys to their source identifiers
-	VaultConfig *vault.Config     // Vault configuration if Source is "vault"
+	Source  string            // "environment", "secrets-manager", "encrypted-file"
+	Secrets map[string]string // Maps credential keys to their source identifiers
 }
 
 // ProviderCredentials represents the credentials needed for a cloud provider
@@ -51,8 +49,6 @@ func (m *Manager) GetCredentials(ctx context.Context, provider string) (*Provide
 		return m.getFromEnvironment(provider)
 	case "secrets-manager":
 		return m.getFromSecretsManager(ctx, provider)
-	case "vault":
-		return m.getFromVault(ctx, provider)
 	case "encrypted-file":
 		return nil, fmt.Errorf("encrypted file integration not yet implemented")
 	default:
@@ -137,111 +133,6 @@ func (m *Manager) getFromSecretsManager(ctx context.Context, provider string) (*
 	creds := &ProviderCredentials{}
 	if err := json.Unmarshal([]byte(*result.SecretString), creds); err != nil {
 		return nil, fmt.Errorf("failed to parse secret JSON: %w", err)
-	}
-
-	return creds, nil
-}
-
-// getFromVault retrieves credentials from HashiCorp Vault
-func (m *Manager) getFromVault(ctx context.Context, provider string) (*ProviderCredentials, error) {
-	if m.VaultConfig == nil {
-		return nil, fmt.Errorf("vault configuration is required when using vault credentials")
-	}
-
-	// Create Vault client
-	client, err := vault.NewClient(m.VaultConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create vault client: %w", err)
-	}
-	defer client.Close()
-
-	// Authenticate to Vault
-	if err := client.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("failed to authenticate to vault: %w", err)
-	}
-
-	creds := &ProviderCredentials{}
-
-	switch provider {
-	case "aws":
-		// Fetch AWS credentials from Vault
-		// Expected path: secret/data/cloud-deploy/aws/credentials
-		accessKeyID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/aws/credentials", "access_key_id")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch AWS access_key_id from vault: %w", err)
-		}
-
-		secretAccessKey, err := client.GetSecret(ctx, "secret/data/cloud-deploy/aws/credentials", "secret_access_key")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch AWS secret_access_key from vault: %w", err)
-		}
-
-		creds.AWS.AccessKeyID = accessKeyID
-		creds.AWS.SecretAccessKey = secretAccessKey
-
-	case "gcp":
-		// Fetch GCP credentials from Vault
-		// Expected path: secret/data/cloud-deploy/gcp/credentials
-		projectID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/gcp/credentials", "project_id")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch GCP project_id from vault: %w", err)
-		}
-
-		serviceAccountKey, err := client.GetSecret(ctx, "secret/data/cloud-deploy/gcp/credentials", "service_account_key")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch GCP service_account_key from vault: %w", err)
-		}
-
-		creds.GCP.ProjectID = projectID
-		creds.GCP.ServiceAccountKey = serviceAccountKey
-
-	case "azure":
-		// Fetch Azure credentials from Vault
-		// Expected path: secret/data/cloud-deploy/azure/credentials
-		subscriptionID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/azure/credentials", "subscription_id")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Azure subscription_id from vault: %w", err)
-		}
-
-		clientID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/azure/credentials", "client_id")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Azure client_id from vault: %w", err)
-		}
-
-		clientSecret, err := client.GetSecret(ctx, "secret/data/cloud-deploy/azure/credentials", "client_secret")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Azure client_secret from vault: %w", err)
-		}
-
-		tenantID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/azure/credentials", "tenant_id")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Azure tenant_id from vault: %w", err)
-		}
-
-		creds.Azure.SubscriptionID = subscriptionID
-		creds.Azure.ClientID = clientID
-		creds.Azure.ClientSecret = clientSecret
-		creds.Azure.TenantID = tenantID
-
-	case "cloudflare":
-		// Fetch Cloudflare credentials from Vault
-		// Expected path: secret/data/cloud-deploy/cloudflare/credentials
-		apiToken, err := client.GetSecret(ctx, "secret/data/cloud-deploy/cloudflare/credentials", "api_token")
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Cloudflare api_token from vault: %w", err)
-		}
-
-		accountID, err := client.GetSecret(ctx, "secret/data/cloud-deploy/cloudflare/credentials", "account_id")
-		if err != nil {
-			// Account ID might be optional
-			accountID = ""
-		}
-
-		creds.Cloudflare.APIToken = apiToken
-		creds.Cloudflare.AccountID = accountID
-
-	default:
-		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
 
 	return creds, nil

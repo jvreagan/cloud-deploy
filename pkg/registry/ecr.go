@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -66,7 +68,7 @@ func (e *ECRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	ecrClient := ecr.NewFromConfig(e.config)
 
 	// Create repository if it doesn't exist
-	fmt.Printf("Ensuring ECR repository exists: %s\n", e.repositoryName)
+	logging.Info("Ensuring ECR repository exists: %s\n", e.repositoryName)
 	_, err = ecrClient.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(e.repositoryName),
 	})
@@ -75,9 +77,9 @@ func (e *ECRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 		if !strings.Contains(err.Error(), "RepositoryAlreadyExistsException") {
 			return nil, fmt.Errorf("failed to create ECR repository: %w", err)
 		}
-		fmt.Printf("Repository %s already exists\n", e.repositoryName)
+		logging.Info("Repository %s already exists\n", e.repositoryName)
 	} else {
-		fmt.Printf("Created ECR repository: %s\n", e.repositoryName)
+		logging.Info("Created ECR repository: %s\n", e.repositoryName)
 	}
 
 	// Get authorization token
@@ -106,7 +108,7 @@ func (e *ECRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	username := parts[0]
 	password := parts[1]
 
-	fmt.Println("Successfully retrieved ECR credentials")
+	logging.Info("Successfully retrieved ECR credentials")
 
 	// Return authenticator with username and password
 	return &authn.Basic{

@@ -10,7 +10,7 @@ import (
 	"regexp"
 
 	"github.com/jvreagan/cloud-deploy/pkg/credentials"
-	"github.com/jvreagan/cloud-deploy/pkg/vault"
+	"github.com/jvreagan/cloud-deploy/pkg/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,12 +67,6 @@ type Manifest struct {
 	// Environment variables to set in the deployment - optional
 	EnvironmentVariables map[string]string `yaml:"environment_variables,omitempty"`
 
-	// Vault configuration for secret management - optional
-	Vault *VaultConfig `yaml:"vault,omitempty"`
-
-	// Secrets to fetch from Vault and inject as environment variables - optional
-	Secrets []SecretConfig `yaml:"secrets,omitempty"`
-
 	// Tags to apply to cloud resources - optional
 	Tags map[string]string `yaml:"tags,omitempty"`
 
@@ -127,12 +121,11 @@ type ProviderConfig struct {
 }
 
 // CredentialsConfig contains cloud provider credentials.
-// Credentials can be provided directly, via environment variables, or from Vault.
+// Credentials can be provided directly or via environment variables.
 type CredentialsConfig struct {
-	// Source of credentials: "manifest", "environment", "vault", "cli" (default: "cli")
+	// Source of credentials: "manifest", "environment", "cli" (default: "cli")
 	// - "manifest": Use credentials specified directly in this manifest
 	// - "environment": Use environment variables (AWS_ACCESS_KEY_ID, etc.)
-	// - "vault": Fetch from HashiCorp Vault using paths configured in Vault section
 	// - "cli": Use cloud provider CLI credentials (default)
 	Source string `yaml:"source,omitempty"`
 
@@ -288,47 +281,6 @@ type IAMConfig struct {
 	ServiceRole string `yaml:"service_role,omitempty"`
 }
 
-// VaultConfig specifies HashiCorp Vault connection and authentication settings.
-type VaultConfig struct {
-	// Address is the Vault server URL (e.g., "http://127.0.0.1:8200")
-	Address string `yaml:"address"`
-
-	// Auth holds authentication configuration
-	Auth VaultAuthConfig `yaml:"auth"`
-
-	// TLSSkipVerify skips TLS certificate verification (not recommended for production)
-	TLSSkipVerify bool `yaml:"tls_skip_verify,omitempty"`
-}
-
-// VaultAuthConfig specifies how to authenticate to Vault.
-type VaultAuthConfig struct {
-	// Method is the auth method: "token", "approle", "aws-iam", "gcp-iam"
-	Method string `yaml:"method"`
-
-	// Token for token authentication (can be environment variable reference like "${VAULT_TOKEN}")
-	Token string `yaml:"token,omitempty"`
-
-	// RoleID for AppRole authentication (can be environment variable reference)
-	RoleID string `yaml:"role_id,omitempty"`
-
-	// SecretID for AppRole authentication (can be environment variable reference)
-	SecretID string `yaml:"secret_id,omitempty"`
-
-	// Role for AWS IAM or GCP IAM authentication
-	Role string `yaml:"role,omitempty"`
-}
-
-// SecretConfig defines a secret to fetch from Vault.
-type SecretConfig struct {
-	// Name is the environment variable name (e.g., "DATABASE_URL")
-	Name string `yaml:"name"`
-
-	// VaultPath is the full Vault path (e.g., "secret/data/myapp/database")
-	VaultPath string `yaml:"vault_path"`
-
-	// VaultKey is the key within the secret (e.g., "url")
-	VaultKey string `yaml:"vault_key"`
-}
 
 // SSLConfig defines SSL/TLS certificate configuration.
 type SSLConfig struct {
@@ -387,12 +339,10 @@ func (m *Manifest) Validate() error {
 		if m.Provider.ProjectID == "" {
 			return fmt.Errorf("provider.project_id is required for GCP deployments")
 		}
-		// Check credentials unless using Vault
-		if m.Provider.Credentials == nil || m.Provider.Credentials.Source != "vault" {
-			if m.Provider.Credentials == nil ||
-				(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
-				return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
-			}
+		// Check credentials
+		if m.Provider.Credentials == nil ||
+			(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
+			return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
 		}
 		if m.Provider.BillingAccountID == "" {
 			return fmt.Errorf("provider.billing_account_id is required for GCP deployments")
@@ -409,77 +359,11 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
-	// Vault validation
-	if m.Vault != nil {
-		if m.Vault.Address == "" {
-			return fmt.Errorf("vault.address is required when vault is configured")
-		}
-		if m.Vault.Auth.Method == "" {
-			return fmt.Errorf("vault.auth.method is required when vault is configured")
-		}
-	}
-
 	return nil
 }
 
-// FetchVaultSecrets fetches secrets from Vault and returns them as a map.
-// This is called during deployment to retrieve secrets and inject them as environment variables.
-//
-// Returns a map of environment variable names to secret values.
-func (m *Manifest) FetchVaultSecrets(ctx context.Context) (map[string]string, error) {
-	// If no Vault config or secrets, return empty map
-	if m.Vault == nil || len(m.Secrets) == 0 {
-		return make(map[string]string), nil
-	}
-
-	// Expand environment variables in Vault config
-	vaultConfig := &vault.Config{
-		Address:       m.Vault.Address,
-		TLSSkipVerify: m.Vault.TLSSkipVerify,
-		Auth: vault.AuthConfig{
-			Method:   m.Vault.Auth.Method,
-			Token:    expandEnvVars(m.Vault.Auth.Token),
-			RoleID:   expandEnvVars(m.Vault.Auth.RoleID),
-			SecretID: expandEnvVars(m.Vault.Auth.SecretID),
-			Role:     m.Vault.Auth.Role,
-		},
-	}
-
-	// Create Vault client
-	client, err := vault.NewClient(vaultConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create vault client: %w", err)
-	}
-	defer client.Close()
-
-	// Authenticate to Vault
-	fmt.Println("Authenticating to Vault...")
-	if err := client.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("failed to authenticate to vault: %w", err)
-	}
-
-	// Build secret refs map
-	secretRefs := make(map[string]vault.SecretRef)
-	for _, secret := range m.Secrets {
-		secretRefs[secret.Name] = vault.SecretRef{
-			Path: secret.VaultPath,
-			Key:  secret.VaultKey,
-		}
-	}
-
-	// Fetch all secrets
-	fmt.Printf("Fetching %d secrets from Vault...\n", len(secretRefs))
-	secrets, err := client.GetSecrets(ctx, secretRefs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch secrets from vault: %w", err)
-	}
-
-	fmt.Printf("Successfully retrieved %d secrets from Vault\n", len(secrets))
-	return secrets, nil
-}
-
 // GetCloudCredentials retrieves cloud provider credentials based on the configured source.
-// Supports: CLI credentials (default), environment variables, Vault, or manifest.
+// Supports: CLI credentials (default), environment variables, or manifest.
 //
 // Returns credentials for the specified provider using the configured source.
 func (m *Manifest) GetCloudCredentials(ctx context.Context) (*credentials.ProviderCredentials, error) {
@@ -493,45 +377,22 @@ func (m *Manifest) GetCloudCredentials(ctx context.Context) (*credentials.Provid
 	}
 
 	switch source {
-	case "vault":
-		// Use Vault to fetch credentials
-		if m.Vault == nil {
-			return nil, fmt.Errorf("vault configuration required when credentials.source is 'vault'")
-		}
-
-		// Configure credentials manager to use Vault
-		credMgr.Source = "vault"
-		credMgr.VaultConfig = &vault.Config{
-			Address:       m.Vault.Address,
-			TLSSkipVerify: m.Vault.TLSSkipVerify,
-			Auth: vault.AuthConfig{
-				Method:   m.Vault.Auth.Method,
-				Token:    expandEnvVars(m.Vault.Auth.Token),
-				RoleID:   expandEnvVars(m.Vault.Auth.RoleID),
-				SecretID: expandEnvVars(m.Vault.Auth.SecretID),
-				Role:     m.Vault.Auth.Role,
-			},
-		}
-
-		fmt.Printf("📦 Loading %s credentials from Vault...\n", m.Provider.Name)
-		return credMgr.GetCredentials(ctx, m.Provider.Name)
-
 	case "environment":
 		// Use environment variables
 		credMgr.Source = "environment"
-		fmt.Printf("📦 Loading %s credentials from environment variables...\n", m.Provider.Name)
+		logging.Info("📦 Loading %s credentials from environment variables...\n", m.Provider.Name)
 		return credMgr.GetCredentials(ctx, m.Provider.Name)
 
 	case "manifest":
 		// Credentials are directly in the manifest (return nil to use default behavior)
-		fmt.Printf("📦 Using %s credentials from manifest...\n", m.Provider.Name)
+		logging.Info("📦 Using %s credentials from manifest...\n", m.Provider.Name)
 		return nil, nil
 
 	case "cli":
 		fallthrough
 	default:
 		// Use cloud provider CLI credentials (default behavior)
-		fmt.Printf("📦 Using %s credentials from CLI...\n", m.Provider.Name)
+		logging.Info("📦 Using %s credentials from CLI...\n", m.Provider.Name)
 		return nil, nil
 	}
 }
