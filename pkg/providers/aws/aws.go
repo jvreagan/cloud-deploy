@@ -415,6 +415,15 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 		logging.Debug("No ports specified in manifest, using default port 80")
 	}
 
+	// Build environment variables array for Docker
+	var envVars []map[string]string
+	for key, value := range m.EnvironmentVariables {
+		envVars = append(envVars, map[string]string{
+			"Name":  key,
+			"Value": value,
+		})
+	}
+
 	// Create Dockerrun.aws.json structure
 	dockerrun := map[string]interface{}{
 		"AWSEBDockerrunVersion": "1",
@@ -423,6 +432,11 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 			"Update": "true",
 		},
 		"Ports": ports,
+	}
+
+	// Add environment variables if any exist
+	if len(envVars) > 0 {
+		dockerrun["Environment"] = envVars
 	}
 
 	// Marshal to JSON
