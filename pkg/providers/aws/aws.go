@@ -403,7 +403,7 @@ func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, im
 				"HostPort":      hostPort,
 			})
 		}
-			logging.Debug("Using ports from manifest", "ports", m.Ports)
+		logging.Debug("Using ports from manifest", "ports", m.Ports)
 	} else {
 		// Default to port 80 if no ports specified
 		ports = []map[string]interface{}{

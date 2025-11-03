@@ -61,9 +61,9 @@ func TestSanitizeString(t *testing.T) {
 
 func TestSanitizeMap(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    map[string]interface{}
-		checkKey string
+		name         string
+		input        map[string]interface{}
+		checkKey     string
 		wantRedacted bool
 	}{
 		{
@@ -72,7 +72,7 @@ func TestSanitizeMap(t *testing.T) {
 				"username": "admin",
 				"password": "secret123",
 			},
-			checkKey: "password",
+			checkKey:     "password",
 			wantRedacted: true,
 		},
 		{
@@ -81,7 +81,7 @@ func TestSanitizeMap(t *testing.T) {
 				"region":        "us-east-1",
 				"access_key_id": "AKIAIOSFODNN7EXAMPLE",
 			},
-			checkKey: "access_key_id",
+			checkKey:     "access_key_id",
 			wantRedacted: true,
 		},
 		{
@@ -89,7 +89,7 @@ func TestSanitizeMap(t *testing.T) {
 			input: map[string]interface{}{
 				"config": "password=secret123",
 			},
-			checkKey: "config",
+			checkKey:     "config",
 			wantRedacted: true,
 		},
 		{
@@ -98,7 +98,7 @@ func TestSanitizeMap(t *testing.T) {
 				"region": "us-west-2",
 				"count":  5,
 			},
-			checkKey: "region",
+			checkKey:     "region",
 			wantRedacted: false,
 		},
 	}

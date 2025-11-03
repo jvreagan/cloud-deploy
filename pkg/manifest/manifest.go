@@ -281,7 +281,6 @@ type IAMConfig struct {
 	ServiceRole string `yaml:"service_role,omitempty"`
 }
 
-
 // SSLConfig defines SSL/TLS certificate configuration.
 type SSLConfig struct {
 	// CertificateArn is the AWS ACM certificate ARN for HTTPS (AWS only)

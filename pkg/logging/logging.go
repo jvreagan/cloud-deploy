@@ -16,7 +16,7 @@ var (
 		regexp.MustCompile(`(?i)(password|secret|token|key|auth)[\s]*[:=][\s]*[^\s]+`),
 		regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9\-._~+/]+=*`),
 		regexp.MustCompile(`(?i)Basic\s+[A-Za-z0-9+/]+=*`),
-		regexp.MustCompile(`AKIA[0-9A-Z]{16}`), // AWS Access Key
+		regexp.MustCompile(`AKIA[0-9A-Z]{16}`),   // AWS Access Key
 		regexp.MustCompile(`[0-9a-zA-Z/+=]{40}`), // AWS Secret Key pattern
 	}
 )
