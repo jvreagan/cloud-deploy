@@ -1,0 +1,59 @@
+# Binaries (at root level only)
+/cloud-deploy
+/manifest-ui
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# GoReleaser artifacts
+dist/
+*.tar.gz
+*.zip
+
+# Go
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment artifacts
+*.log
+.elasticbeanstalk/
+
+# Test manifests (keep examples)
+deploy-manifest.yaml
+!deploy-manifest.example.yaml
+
+# Generated manifests from UI
+generated-manifests/
+
+# Claude Code files
+.claude-session.md
+CLAUDE.md
+
+# Working notes with potential secrets
+working-*.md
+
+# SECURITY: Never commit these files
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+.env
+.env.*
+!.env.example
+*-credentials.json
+service-account*.json

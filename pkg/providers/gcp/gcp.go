@@ -478,9 +478,12 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 		container.Resources = resources
 	}
 
-	// Create revision template
+	// Create revision template with deployment timestamp annotation to force new revision
 	revisionTemplate := &runpb.RevisionTemplate{
 		Containers: []*runpb.Container{container},
+		Annotations: map[string]string{
+			"cloud-deploy.deployment-time": time.Now().UTC().Format(time.RFC3339),
+		},
 	}
 
 	// Apply scaling configuration
@@ -644,9 +647,12 @@ func (p *Provider) deployMultiContainerService(ctx context.Context, m *manifest.
 		containers = append(containers, container)
 	}
 
-	// Create revision template
+	// Create revision template with deployment timestamp annotation to force new revision
 	revisionTemplate := &runpb.RevisionTemplate{
 		Containers: containers,
+		Annotations: map[string]string{
+			"cloud-deploy.deployment-time": time.Now().UTC().Format(time.RFC3339),
+		},
 	}
 
 	// Apply scaling configuration
