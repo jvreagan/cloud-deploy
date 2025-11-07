@@ -95,39 +95,45 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 		}
 	}
 
+	// Build client options - only add credOption if not nil
+	var clientOpts []option.ClientOption
+	if credOption != nil {
+		clientOpts = append(clientOpts, credOption)
+	}
+
 	// Initialize Cloud Resource Manager client (for project management)
-	projectsClient, err := cloudresourcemanager.NewService(ctx, credOption)
+	projectsClient, err := cloudresourcemanager.NewService(ctx, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Cloud Resource Manager client: %w", err)
 	}
 
 	// Initialize Cloud Billing client
-	billingClient, err := cloudbilling.NewService(ctx, credOption)
+	billingClient, err := cloudbilling.NewService(ctx, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Cloud Billing client: %w", err)
 	}
 
 	// Initialize Service Usage client (for enabling APIs)
-	usageClient, err := serviceusage.NewService(ctx, credOption)
+	usageClient, err := serviceusage.NewService(ctx, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Service Usage client: %w", err)
 	}
 
 	// Initialize Cloud Build client
-	buildClient, err := cloudbuild.NewClient(ctx, credOption)
+	buildClient, err := cloudbuild.NewClient(ctx, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Cloud Build client: %w", err)
 	}
 
 	// Initialize Cloud Run client
-	runClient, err := run.NewServicesClient(ctx, credOption)
+	runClient, err := run.NewServicesClient(ctx, clientOpts...)
 	if err != nil {
 		buildClient.Close()
 		return nil, fmt.Errorf("failed to create Cloud Run client: %w", err)
 	}
 
 	// Initialize Cloud Run Revisions client
-	revisionsClient, err := run.NewRevisionsClient(ctx, credOption)
+	revisionsClient, err := run.NewRevisionsClient(ctx, clientOpts...)
 	if err != nil {
 		buildClient.Close()
 		runClient.Close()
@@ -135,7 +141,7 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 	}
 
 	// Initialize Cloud Storage client
-	storageClient, err := storage.NewClient(ctx, credOption)
+	storageClient, err := storage.NewClient(ctx, clientOpts...)
 	if err != nil {
 		buildClient.Close()
 		runClient.Close()
@@ -144,7 +150,7 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 	}
 
 	// Initialize Cloud Logging client (will be configured after project is ready)
-	loggingClient, err := logadmin.NewClient(ctx, projectID, credOption)
+	loggingClient, err := logadmin.NewClient(ctx, projectID, clientOpts...)
 	if err != nil {
 		buildClient.Close()
 		runClient.Close()
@@ -194,7 +200,12 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to Google Cloud Run.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	logging.Info("Starting Google Cloud Run deployment...")
+	if m.IsMultiContainer() {
+		logging.Info("Starting Google Cloud Run multi-container deployment...")
+		return p.deployMultiContainer(ctx, m)
+	}
+
+	logging.Info("Starting Google Cloud Run single-container deployment...")
 
 	// Step 1: Push image to GCR (Artifact Registry)
 	logging.Info("\n=== Distributing image to GCR ===")
@@ -252,6 +263,71 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		URL:             url,
 		Status:          "Ready",
 		Message:         "Deployment successful",
+	}, nil
+}
+
+// deployMultiContainer deploys a multi-container application using Cloud Run sidecars.
+func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	// Get credentials JSON for GCR authentication
+	var credsJSON string
+	if m.Provider.Credentials != nil {
+		if m.Provider.Credentials.ServiceAccountKeyJSON != "" {
+			credsJSON = m.Provider.Credentials.ServiceAccountKeyJSON
+		}
+	}
+
+	// Step 1: Push ALL container images to GCR
+	logging.Info("Distributing %d container images to GCR...", len(m.Containers))
+	containerImageURIs := make(map[string]string) // container name -> GCR URI
+
+	for _, container := range m.Containers {
+		logging.Info("Pushing container image: %s (%s)", container.Name, container.Image)
+
+		repositoryName := m.Application.Name
+		gcrRegistry, err := registry.NewGCRRegistry(p.projectID, p.region, repositoryName, container.Name, credsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GCR registry for container %s: %w", container.Name, err)
+		}
+
+		distributor := registry.NewDistributor(container.Image)
+		distributor.AddRegistry(gcrRegistry)
+
+		imageURIs, err := distributor.Distribute(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to distribute image for container %s: %w", container.Name, err)
+		}
+
+		imageURI := imageURIs[gcrRegistry.GetRegistryURL()]
+		containerImageURIs[container.Name] = imageURI
+		logging.Info("Image pushed to GCR: %s -> %s", container.Name, imageURI)
+	}
+
+	// Step 2: Deploy multi-container service to Cloud Run
+	serviceName := m.Environment.Name
+	if err := p.deployMultiContainerService(ctx, m, serviceName, containerImageURIs); err != nil {
+		return nil, fmt.Errorf("failed to deploy multi-container service: %w", err)
+	}
+
+	// Step 3: Configure Cloud Logging if enabled
+	if m.Monitoring.CloudWatchLogs != nil && m.Monitoring.CloudWatchLogs.Enabled {
+		if err := p.configureLogging(ctx, m); err != nil {
+			logging.Info("Warning: failed to configure Cloud Logging: %v\n", err)
+		}
+	}
+
+	// Step 4: Wait for service to be ready
+	logging.Info("Waiting for service to be ready...")
+	url, err := p.waitForService(ctx, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("service deployment failed: %w", err)
+	}
+
+	return &types.DeploymentResult{
+		ApplicationName: m.Application.Name,
+		EnvironmentName: m.Environment.Name,
+		URL:             url,
+		Status:          "Ready",
+		Message:         fmt.Sprintf("Multi-container deployment successful (%d containers)", len(m.Containers)),
 	}, nil
 }
 
@@ -488,6 +564,167 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 	return nil
 }
 
+// deployMultiContainerService deploys a Cloud Run service with multiple containers (sidecars).
+func (p *Provider) deployMultiContainerService(ctx context.Context, m *manifest.Manifest, serviceName string, containerImageURIs map[string]string) error {
+	parent := fmt.Sprintf("projects/%s/locations/%s", p.projectID, p.region)
+	serviceFullName := fmt.Sprintf("%s/services/%s", parent, serviceName)
+
+	// Check if service exists
+	getReq := &runpb.GetServiceRequest{
+		Name: serviceFullName,
+	}
+	_, err := p.runClient.GetService(ctx, getReq)
+	serviceExists := err == nil
+
+	// Build containers array from manifest
+	containers := make([]*runpb.Container, 0, len(m.Containers))
+
+	for _, containerDef := range m.Containers {
+		imageURI := containerImageURIs[containerDef.Name]
+
+		// Build environment variables for this container
+		envVars := make([]*runpb.EnvVar, 0, len(containerDef.Environment))
+		for key, value := range containerDef.Environment {
+			envVars = append(envVars, &runpb.EnvVar{
+				Name: key,
+				Values: &runpb.EnvVar_Value{
+					Value: value,
+				},
+			})
+		}
+
+		// Create container
+		container := &runpb.Container{
+			Name:  containerDef.Name,
+			Image: imageURI,
+			Env:   envVars,
+		}
+
+		// Set ports ONLY for the first container (ingress container)
+		// Cloud Run requires exactly one container with exposed ports
+		isPrimaryContainer := containerDef.Name == m.Containers[0].Name
+		if isPrimaryContainer && len(containerDef.Ports) > 0 {
+			// Cloud Run uses the first port as the ingress port
+			container.Ports = []*runpb.ContainerPort{
+				{
+					Name:          "http1",
+					ContainerPort: int32(containerDef.Ports[0].ContainerPort),
+				},
+			}
+		}
+
+		// Apply Cloud Run configuration - set resources on all containers
+		if m.CloudRun != nil {
+			resources := &runpb.ResourceRequirements{
+				Limits: make(map[string]string),
+			}
+
+			if isPrimaryContainer {
+				// Primary container gets configured resources
+				if m.CloudRun.CPU != "" {
+					resources.Limits["cpu"] = m.CloudRun.CPU
+				} else {
+					resources.Limits["cpu"] = "1"
+				}
+				if m.CloudRun.Memory != "" {
+					resources.Limits["memory"] = m.CloudRun.Memory
+				} else {
+					resources.Limits["memory"] = "512Mi"
+				}
+			} else {
+				// Sidecar containers get default resources
+				// (following Datadog sidecar recommendations: 1 CPU, 512Mi memory)
+				resources.Limits["cpu"] = "1"
+				resources.Limits["memory"] = "512Mi"
+			}
+
+			container.Resources = resources
+		}
+
+		containers = append(containers, container)
+	}
+
+	// Create revision template
+	revisionTemplate := &runpb.RevisionTemplate{
+		Containers: containers,
+	}
+
+	// Apply scaling configuration
+	if m.CloudRun != nil {
+		scaling := &runpb.RevisionScaling{}
+		if m.CloudRun.MinInstances > 0 {
+			scaling.MinInstanceCount = m.CloudRun.MinInstances
+		}
+		if m.CloudRun.MaxInstances > 0 {
+			scaling.MaxInstanceCount = m.CloudRun.MaxInstances
+		}
+		revisionTemplate.Scaling = scaling
+
+		// Set max concurrency
+		if m.CloudRun.MaxConcurrency > 0 {
+			revisionTemplate.MaxInstanceRequestConcurrency = m.CloudRun.MaxConcurrency
+		}
+
+		// Set timeout
+		if m.CloudRun.TimeoutSeconds > 0 {
+			revisionTemplate.Timeout = durationpb.New(time.Duration(m.CloudRun.TimeoutSeconds) * time.Second)
+		}
+	}
+
+	// Create service specification
+	service := &runpb.Service{
+		Template: revisionTemplate,
+		Ingress:  runpb.IngressTraffic_INGRESS_TRAFFIC_ALL,
+	}
+
+	if serviceExists {
+		logging.Info("Updating existing multi-container service: %s", serviceName)
+
+		service.Name = serviceFullName
+		service.Template = revisionTemplate
+
+		req := &runpb.UpdateServiceRequest{
+			Service: service,
+		}
+
+		op, err := p.runClient.UpdateService(ctx, req)
+		if err != nil {
+			return fmt.Errorf("failed to update service: %w", err)
+		}
+
+		_, err = op.Wait(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to wait for service update: %w", err)
+		}
+	} else {
+		logging.Info("Creating new multi-container service: %s", serviceName)
+
+		req := &runpb.CreateServiceRequest{
+			Parent:    parent,
+			Service:   service,
+			ServiceId: serviceName,
+		}
+
+		op, err := p.runClient.CreateService(ctx, req)
+		if err != nil {
+			return fmt.Errorf("failed to create service: %w", err)
+		}
+
+		_, err = op.Wait(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to wait for service creation: %w", err)
+		}
+	}
+
+	// Make service publicly accessible
+	if err := p.setServiceIAMPolicy(ctx, serviceFullName); err != nil {
+		return fmt.Errorf("failed to set IAM policy: %w", err)
+	}
+
+	logging.Info("Multi-container service deployed successfully with %d containers", len(containers))
+	return nil
+}
+
 // setServiceIAMPolicy configures the Cloud Run service's IAM policy.
 // If publicAccess is true, makes the service publicly accessible (unauthenticated access).
 func (p *Provider) setServiceIAMPolicy(ctx context.Context, serviceName string) error {
@@ -573,19 +810,26 @@ func loadCredentials(creds *manifest.CredentialsConfig) (option.ClientOption, er
 		return nil, fmt.Errorf("credentials are required for GCP deployments")
 	}
 
-	// Option 1: Load from file path
+	// Option 1: Use environment credentials (GOOGLE_APPLICATION_CREDENTIALS)
+	if creds.Source == "environment" {
+		logging.Info("Using Application Default Credentials from environment")
+		// Return nil to use Application Default Credentials
+		return nil, nil
+	}
+
+	// Option 2: Load from file path
 	if creds.ServiceAccountKeyPath != "" {
 		logging.Info("Loading credentials from: %s\n", creds.ServiceAccountKeyPath)
 		return option.WithCredentialsFile(creds.ServiceAccountKeyPath), nil
 	}
 
-	// Option 2: Load from JSON string
+	// Option 3: Load from JSON string
 	if creds.ServiceAccountKeyJSON != "" {
 		logging.Info("Loading credentials from manifest JSON")
 		return option.WithCredentialsJSON([]byte(creds.ServiceAccountKeyJSON)), nil
 	}
 
-	return nil, fmt.Errorf("either service_account_key_path or service_account_key_json is required")
+	return nil, fmt.Errorf("either service_account_key_path, service_account_key_json, or source: environment is required")
 }
 
 // ensureProject creates the GCP project if it doesn't exist.

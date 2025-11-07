@@ -322,6 +322,7 @@ type SSLConfig struct {
 //	  log.Fatal(err)
 //	}
 func Load(filename string) (*Manifest, error) {
+	fmt.Printf("DEBUG manifest.Load: Loading file: %s\n", filename)
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read manifest file: %w", err)
@@ -330,9 +331,22 @@ func Load(filename string) (*Manifest, error) {
 	// Expand environment variables in the YAML content
 	expanded := os.ExpandEnv(string(data))
 
+	// DEBUG: Print first 500 chars of YAML
+	truncLen := 500
+	if len(expanded) < truncLen {
+		truncLen = len(expanded)
+	}
+	fmt.Printf("DEBUG: First %d chars of YAML:\n%s\n...\n", truncLen, expanded[:truncLen])
+
 	var manifest Manifest
 	if err := yaml.Unmarshal([]byte(expanded), &manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	// DEBUG: Print what was parsed
+	fmt.Printf("DEBUG manifest.Load: Image=%q, len(Containers)=%d\n", manifest.Image, len(manifest.Containers))
+	for i, c := range manifest.Containers {
+		fmt.Printf("DEBUG   Container[%d]: name=%s, image=%s\n", i, c.Name, c.Image)
 	}
 
 	if err := manifest.Validate(); err != nil {
@@ -388,8 +402,10 @@ func (m *Manifest) Validate() error {
 		}
 		// Check credentials
 		if m.Provider.Credentials == nil ||
-			(m.Provider.Credentials.ServiceAccountKeyPath == "" && m.Provider.Credentials.ServiceAccountKeyJSON == "") {
-			return fmt.Errorf("provider.credentials.service_account_key_path or service_account_key_json is required for GCP deployments")
+			(m.Provider.Credentials.Source != "environment" &&
+				m.Provider.Credentials.ServiceAccountKeyPath == "" &&
+				m.Provider.Credentials.ServiceAccountKeyJSON == "") {
+			return fmt.Errorf("provider.credentials.service_account_key_path, service_account_key_json, or source: environment is required for GCP deployments")
 		}
 		if m.Provider.BillingAccountID == "" {
 			return fmt.Errorf("provider.billing_account_id is required for GCP deployments")

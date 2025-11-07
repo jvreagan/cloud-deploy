@@ -150,7 +150,12 @@ func (p *Provider) Name() string {
 // 4. Deploys to Azure Container Instances
 // 5. Fetches Vault secrets if configured
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	logging.Info("Starting Azure Container Instances deployment...")
+	if m.IsMultiContainer() {
+		logging.Info("Starting Azure Container Instances multi-container deployment...")
+		return p.deployMultiContainer(ctx, m)
+	}
+
+	logging.Info("Starting Azure Container Instances single-container deployment...")
 
 	// Step 1: Ensure resource group exists
 	if err := p.ensureResourceGroup(ctx); err != nil {
@@ -204,6 +209,69 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		URL:             url,
 		Status:          "Running",
 		Message:         "Deployment successful",
+	}, nil
+}
+
+// deployMultiContainer deploys multiple containers as a Container Group.
+func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	// Step 1: Ensure resource group exists
+	if err := p.ensureResourceGroup(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ensure resource group: %w", err)
+	}
+
+	// Step 2: Create Container Registry (ACR)
+	registryName := p.generateRegistryName(m.Application.Name)
+	_, registryPassword, err := p.ensureContainerRegistry(ctx, registryName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure container registry: %w", err)
+	}
+
+	// Step 3: Push ALL container images to ACR
+	logging.Info("Distributing %d container images to ACR...", len(m.Containers))
+	containerImageURIs := make(map[string]string) // container name -> ACR URI
+
+	for _, container := range m.Containers {
+		logging.Info("Pushing container image: %s (%s)", container.Name, container.Image)
+
+		acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, container.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ACR registry for container %s: %w", container.Name, err)
+		}
+
+		distributor := registry.NewDistributor(container.Image)
+		distributor.AddRegistry(acrRegistry)
+
+		imageURIs, err := distributor.Distribute(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to distribute image for container %s: %w", container.Name, err)
+		}
+
+		imageURI := imageURIs[acrRegistry.GetRegistryURL()]
+		containerImageURIs[container.Name] = imageURI
+		logging.Info("Image pushed to ACR: %s -> %s", container.Name, imageURI)
+	}
+
+	// Step 4: Deploy multi-container group to Azure Container Instances
+	containerGroupName := m.Environment.Name
+	fqdn, err := p.deployMultiContainerGroup(ctx, m, containerGroupName, containerImageURIs, registryName, registryPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy multi-container group: %w", err)
+	}
+
+	// Step 5: Wait for container group to be running
+	logging.Info("Waiting for container group to be ready...")
+	if err := p.waitForContainerGroup(ctx, containerGroupName); err != nil {
+		return nil, fmt.Errorf("container group deployment failed: %w", err)
+	}
+
+	url := fmt.Sprintf("http://%s", fqdn)
+
+	return &types.DeploymentResult{
+		ApplicationName: m.Application.Name,
+		EnvironmentName: m.Environment.Name,
+		URL:             url,
+		Status:          "Running",
+		Message:         fmt.Sprintf("Multi-container deployment successful (%d containers)", len(m.Containers)),
 	}, nil
 }
 
@@ -552,6 +620,131 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 		fqdn = *result.Properties.IPAddress.Fqdn
 	}
 
+	return fqdn, nil
+}
+
+// deployMultiContainerGroup deploys a Container Group with multiple containers.
+func (p *Provider) deployMultiContainerGroup(ctx context.Context, m *manifest.Manifest, name string, containerImageURIs map[string]string, registryName, registryPassword string) (string, error) {
+	logging.Info("Deploying multi-container group: %s with %d containers", name, len(m.Containers))
+
+	// Get registry login server
+	registryLoginServer, _, err := p.getRegistryCredentials(ctx, registryName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get registry login server: %w", err)
+	}
+
+	// Configure default resources
+	cpu := 1.0
+	memoryGB := 1.5
+	if m.Azure != nil {
+		if m.Azure.CPU > 0 {
+			cpu = m.Azure.CPU
+		}
+		if m.Azure.MemoryGB > 0 {
+			memoryGB = m.Azure.MemoryGB
+		}
+	}
+
+	// Build containers array
+	containers := make([]*armcontainerinstance.Container, 0, len(m.Containers))
+	allPorts := make([]*armcontainerinstance.Port, 0)
+
+	for _, containerDef := range m.Containers {
+		imageURI := containerImageURIs[containerDef.Name]
+
+		// Build environment variables for this container
+		envVars := make([]*armcontainerinstance.EnvironmentVariable, 0, len(containerDef.Environment))
+		for key, value := range containerDef.Environment {
+			// Expand environment variable references (e.g., ${DD_API_KEY})
+			expandedValue := os.ExpandEnv(value)
+			envVars = append(envVars, &armcontainerinstance.EnvironmentVariable{
+				Name:  to.Ptr(key),
+				Value: to.Ptr(expandedValue),
+			})
+		}
+
+		// Build container ports
+		containerPorts := make([]*armcontainerinstance.ContainerPort, 0, len(containerDef.Ports))
+		for _, port := range containerDef.Ports {
+			containerPorts = append(containerPorts, &armcontainerinstance.ContainerPort{
+				Port:     to.Ptr[int32](int32(port.ContainerPort)),
+				Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
+			})
+			// Add to group-level ports
+			allPorts = append(allPorts, &armcontainerinstance.Port{
+				Port:     to.Ptr[int32](int32(port.ContainerPort)),
+				Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP),
+			})
+		}
+
+		// Create container
+		container := &armcontainerinstance.Container{
+			Name: to.Ptr(containerDef.Name),
+			Properties: &armcontainerinstance.ContainerProperties{
+				Image: to.Ptr(imageURI),
+				Resources: &armcontainerinstance.ResourceRequirements{
+					Requests: &armcontainerinstance.ResourceRequests{
+						CPU:        to.Ptr(cpu / float64(len(m.Containers))), // Divide resources among containers
+						MemoryInGB: to.Ptr(memoryGB / float64(len(m.Containers))),
+					},
+				},
+				Ports:                containerPorts,
+				EnvironmentVariables: envVars,
+			},
+		}
+
+		containers = append(containers, container)
+	}
+
+	// Create DNS label from environment name
+	dnsLabel := strings.ToLower(m.Environment.Name)
+	dnsLabel = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, dnsLabel)
+
+	containerGroup := armcontainerinstance.ContainerGroup{
+		Location: to.Ptr(p.location),
+		Properties: &armcontainerinstance.ContainerGroupProperties{
+			Containers: containers,
+			OSType:     to.Ptr(armcontainerinstance.OperatingSystemTypesLinux),
+			IPAddress: &armcontainerinstance.IPAddress{
+				Type:         to.Ptr(armcontainerinstance.ContainerGroupIPAddressTypePublic),
+				Ports:        allPorts,
+				DNSNameLabel: to.Ptr(dnsLabel),
+			},
+			ImageRegistryCredentials: []*armcontainerinstance.ImageRegistryCredential{
+				{
+					Server:   to.Ptr(registryLoginServer),
+					Username: to.Ptr(registryName),
+					Password: to.Ptr(registryPassword),
+				},
+			},
+		},
+		Tags: map[string]*string{
+			"ManagedBy":   to.Ptr("cloud-deploy"),
+			"Application": to.Ptr(m.Application.Name),
+		},
+	}
+
+	poller, err := p.containerClient.BeginCreateOrUpdate(ctx, p.resourceGroup, name, containerGroup, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin create or update container group: %w", err)
+	}
+
+	result, err := poller.PollUntilDone(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create or update container group: %w", err)
+	}
+
+	fqdn := ""
+	if result.Properties != nil && result.Properties.IPAddress != nil && result.Properties.IPAddress.Fqdn != nil {
+		fqdn = *result.Properties.IPAddress.Fqdn
+	}
+
+	logging.Info("Multi-container group deployed successfully with %d containers", len(containers))
 	return fqdn, nil
 }
 

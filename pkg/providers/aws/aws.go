@@ -102,6 +102,9 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to AWS Elastic Beanstalk.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
+	logging.Info(fmt.Sprintf("DEBUG: Number of containers in manifest: %d", len(m.Containers)))
+	logging.Info(fmt.Sprintf("DEBUG: IsMultiContainer() returns: %v", m.IsMultiContainer()))
+
 	if m.IsMultiContainer() {
 		logging.Info("Starting AWS Elastic Beanstalk multi-container deployment")
 		return p.deployMultiContainer(ctx, m)
@@ -599,7 +602,8 @@ func (p *Provider) uploadDockerCompose(ctx context.Context, m *manifest.Manifest
 		imageURI := containerImageURIs[container.Name]
 
 		service := map[string]interface{}{
-			"image": imageURI,
+			"image":   imageURI,
+			"restart": "unless-stopped", // Always restart containers unless explicitly stopped
 		}
 
 		// Add ports if specified
@@ -628,6 +632,22 @@ func (p *Provider) uploadDockerCompose(ctx context.Context, m *manifest.Manifest
 		// Add command if specified
 		if len(container.Command) > 0 {
 			service["command"] = container.Command
+		}
+
+		// Special handling for Datadog agent container
+		// The agent needs access to Docker socket and host system to collect metrics
+		if container.Name == "datadog-agent" || strings.Contains(strings.ToLower(container.Image), "datadog") {
+			service["volumes"] = []string{
+				"/var/run/docker.sock:/var/run/docker.sock:ro",
+				"/proc/:/host/proc/:ro",
+				"/sys/fs/cgroup/:/host/sys/fs/cgroup:ro",
+			}
+			// Add required environment variables for host metrics
+			if envVars, ok := service["environment"].(map[string]string); ok {
+				envVars["DD_DOGSTATSD_NON_LOCAL_TRAFFIC"] = "true"
+				envVars["DD_LOG_LEVEL"] = "info"
+				envVars["DD_PROCESS_AGENT_ENABLED"] = "true"
+			}
 		}
 
 		services[container.Name] = service
@@ -846,9 +866,21 @@ func (p *Provider) buildOptionSettings(m *manifest.Manifest) []ebtypes.Configura
 		}
 	}
 
+	// Collect ports: for multi-container use ports from containers, otherwise use m.Ports
+	var portsToConfig []manifest.PortMapping
+	if m.IsMultiContainer() {
+		// For multi-container deployments, collect ports from all containers
+		for _, container := range m.Containers {
+			portsToConfig = append(portsToConfig, container.Ports...)
+		}
+	} else {
+		// For single-container deployments, use top-level Ports
+		portsToConfig = m.Ports
+	}
+
 	// Configure load balancer listeners for each port in manifest
-	if len(m.Ports) > 0 {
-		for _, port := range m.Ports {
+	if len(portsToConfig) > 0 {
+		for _, port := range portsToConfig {
 			instancePort := port.HostPort
 			if instancePort == 0 {
 				instancePort = port.ContainerPort
