@@ -45,3 +45,33 @@ CLAUDE.md
 
 # Working notes with potential secrets
 working-*.md
+
+# SECURITY: Never commit credential files
+*.pem
+*.key
+!*.pub
+*.p12
+*.pfx
+credentials.json
+*-credentials.json
+service-account*.json
+gcp-*.json
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Cloud provider config (may contain secrets)
+.aws/
+.azure/
+.gcp/
+
+# Terraform state (may contain secrets)
+terraform.tfstate
+terraform.tfstate.*
+.terraform/
+
+# Vault tokens
+.vault-token
