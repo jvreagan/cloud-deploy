@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Check for deployment labels
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const labels = context.payload.pull_request.labels.map(l => l.name);
@@ -84,7 +84,7 @@ jobs:
     if: always() && needs.check-labels.outputs.should_deploy == 'true'
     steps:
       - name: Remove deployment label
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const labels = context.payload.pull_request.labels.map(l => l.name);
