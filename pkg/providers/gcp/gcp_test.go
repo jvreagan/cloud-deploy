@@ -278,7 +278,7 @@ func TestLoadCredentials(t *testing.T) {
 			name:        "with empty credentials",
 			creds:       &manifest.CredentialsConfig{},
 			expectError: true,
-			errorMsg:    "either service_account_key_path or service_account_key_json is required",
+			errorMsg:    "either service_account_key_path, service_account_key_json, or source: environment is required",
 		},
 		{
 			name: "with both path and JSON (path takes precedence)",
