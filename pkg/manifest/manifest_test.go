@@ -151,7 +151,7 @@ environment:
   name: test-env
 `,
 			shouldError: true,
-			errorMsg:    "provider.credentials.service_account_key_path or service_account_key_json is required",
+			errorMsg:    "provider.credentials.service_account_key_path, service_account_key_json, or source: environment is required",
 		},
 		{
 			name: "GCP missing billing account",
@@ -348,7 +348,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			shouldError: true,
-			errorMsg:    "provider.credentials.service_account_key_path or service_account_key_json is required",
+			errorMsg:    "provider.credentials.service_account_key_path, service_account_key_json, or source: environment is required",
 		},
 		{
 			name: "GCP with service_account_key_json",
