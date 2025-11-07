@@ -138,7 +138,7 @@ services:
   datadog-agent:
     image: 163436765630.dkr.ecr.us-east-1.amazonaws.com/testdd1-multi-aws-datadog:datadog-agent
     environment:
-      DD_API_KEY: 96445a08f1bb330929dad3dd470f9cdf
+      DD_API_KEY: "${DD_API_KEY}"  # NEVER commit actual API keys!
       DD_SITE: us5.datadoghq.com
       DD_TAGS: cloud:aws,platform:elastic-beanstalk,region:us-east-1
       DD_APM_ENABLED: "true"

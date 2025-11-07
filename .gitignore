@@ -42,3 +42,6 @@ generated-manifests/
 # Claude Code files
 .claude-session.md
 CLAUDE.md
+
+# Working notes with potential secrets
+working-*.md
