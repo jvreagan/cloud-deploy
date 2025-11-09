@@ -703,6 +703,10 @@ The `examples/` directory contains several deployment manifests:
 
 ## Documentation
 
+### 📖 Reference
+
+- **[Manifest Reference](docs/MANIFEST_REFERENCE.md)** - Complete reference for all manifest options and fields
+
 ### 📚 Comprehensive Guides
 
 - **[Features Overview](docs/FEATURES.md)** - Complete feature list, provider comparison, and what cloud-deploy offers
