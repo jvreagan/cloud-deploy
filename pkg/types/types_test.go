@@ -6,13 +6,13 @@ import (
 
 func TestDeploymentResult(t *testing.T) {
 	tests := []struct {
-		name            string
-		result          DeploymentResult
-		wantApp         string
-		wantEnv         string
-		wantURL         string
-		wantStatus      string
-		wantMessage     string
+		name        string
+		result      DeploymentResult
+		wantApp     string
+		wantEnv     string
+		wantURL     string
+		wantStatus  string
+		wantMessage string
 	}{
 		{
 			name: "complete deployment result",

@@ -21,9 +21,9 @@ type mockRegistry struct {
 	authError      error
 }
 
-func (m *mockRegistry) GetRegistryURL() string                                      { return m.registryURL }
-func (m *mockRegistry) GetImageReference() string                                   { return m.imageReference }
-func (m *mockRegistry) GetImageURI() string                                         { return m.imageURI }
+func (m *mockRegistry) GetRegistryURL() string    { return m.registryURL }
+func (m *mockRegistry) GetImageReference() string { return m.imageReference }
+func (m *mockRegistry) GetImageURI() string       { return m.imageURI }
 func (m *mockRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator, error) {
 	if m.authError != nil {
 		return nil, m.authError
