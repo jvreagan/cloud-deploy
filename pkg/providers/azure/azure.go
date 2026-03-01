@@ -6,10 +6,13 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -169,9 +172,10 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 		return nil, fmt.Errorf("failed to ensure container registry: %w", err)
 	}
 
-	// Step 3: Push image to ACR
+	// Step 3: Push image to ACR with timestamped tag for rollback support
 	logging.Info("\n=== Distributing image to ACR ===")
-	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, "latest")
+	deployTag := fmt.Sprintf("deploy-%s", time.Now().UTC().Format("20060102T150405"))
+	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, deployTag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ACR registry handler: %w", err)
 	}
@@ -296,15 +300,18 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 	return nil
 }
 
-// Stop stops the running container group.
-// Azure Container Instances doesn't support "stop" - containers are either running or deleted.
-// This method deletes the container group, which effectively stops it.
-// You can restart by running Deploy again.
+// Stop stops the running container group without deleting it.
+// The container group is preserved and can be restarted by running Deploy again.
 func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
 	logging.Info("Stopping container group: %s\n", m.Environment.Name)
-	logging.Info("Note: Azure Container Instances will be deleted (restart with 'deploy' command)")
 
-	return p.Destroy(ctx, m)
+	_, err := p.containerClient.Stop(ctx, p.resourceGroup, m.Environment.Name, nil)
+	if err != nil {
+		return fmt.Errorf("failed to stop container group: %w", err)
+	}
+
+	logging.Info("Container group stopped successfully (restart with 'deploy' command)")
+	return nil
 }
 
 // Status returns the current status of the deployment.
@@ -796,22 +803,74 @@ func (p *Provider) waitForContainerGroup(ctx context.Context, name string) error
 	}
 }
 
-// findPreviousImage finds the previous image tag in ACR.
+// findPreviousImage finds the previous image tag in ACR by listing tags
+// via the Docker V2 Distribution API and selecting the most recent deploy
+// tag before the current one.
 func (p *Provider) findPreviousImage(ctx context.Context, registryName, repositoryName, currentImage string) (string, error) {
-	// Extract timestamp from current image
-	// Format: <registry>/<repo>:<timestamp>
+	// Get ACR credentials for Docker V2 API access
+	loginServer, password, err := p.getRegistryCredentials(ctx, registryName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get registry credentials: %w", err)
+	}
+
+	// List tags using Docker V2 Distribution API
+	tagsURL := fmt.Sprintf("https://%s/v2/%s/tags/list", loginServer, registryName)
+	req, err := http.NewRequestWithContext(ctx, "GET", tagsURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create tags request: %w", err)
+	}
+	req.SetBasicAuth(registryName, password)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to list ACR tags: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to list ACR tags: HTTP %d", resp.StatusCode)
+	}
+
+	var tagsResponse struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tagsResponse); err != nil {
+		return "", fmt.Errorf("failed to parse tags response: %w", err)
+	}
+
+	return findPreviousImageFromTags(tagsResponse.Tags, currentImage)
+}
+
+// findPreviousImageFromTags selects the most recent deploy-* tag before the
+// current one from a list of ACR tags.
+func findPreviousImageFromTags(tags []string, currentImage string) (string, error) {
+	// Extract current tag from image URI (format: <registry>/<repo>:<tag>)
 	parts := strings.Split(currentImage, ":")
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid image format: %s", currentImage)
 	}
+	currentTag := parts[1]
+	imageBase := parts[0]
 
-	// For simplicity, we'll return a message that rollback requires manual specification
-	// In production, you would:
-	// 1. List all tags in the ACR repository
-	// 2. Parse timestamps
-	// 3. Find the most recent tag before the current one
+	// Filter for deploy-* tags excluding the current one, then sort
+	var deployTags []string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "deploy-") && tag != currentTag {
+			deployTags = append(deployTags, tag)
+		}
+	}
 
-	return "", fmt.Errorf("automatic rollback not yet implemented - please specify image tag manually")
+	if len(deployTags) == 0 {
+		return "", fmt.Errorf("no previous deployment found to roll back to")
+	}
+
+	// Sort lexicographically — deploy-YYYYMMDDTHHMMSS format sorts chronologically
+	sort.Strings(deployTags)
+
+	// Most recent previous tag is the last one
+	previousTag := deployTags[len(deployTags)-1]
+
+	return fmt.Sprintf("%s:%s", imageBase, previousTag), nil
 }
 
 // createTarGz creates a tar.gz archive of a directory.
