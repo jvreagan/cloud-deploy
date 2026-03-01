@@ -102,9 +102,6 @@ func (p *Provider) Name() string {
 
 // Deploy deploys an application to AWS Elastic Beanstalk.
 func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.DeploymentResult, error) {
-	logging.Info(fmt.Sprintf("DEBUG: Number of containers in manifest: %d", len(m.Containers)))
-	logging.Info(fmt.Sprintf("DEBUG: IsMultiContainer() returns: %v", m.IsMultiContainer()))
-
 	if m.IsMultiContainer() {
 		logging.Info("Starting AWS Elastic Beanstalk multi-container deployment")
 		return p.deployMultiContainer(ctx, m)
