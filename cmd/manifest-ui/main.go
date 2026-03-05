@@ -17,7 +17,7 @@ import (
 // It accepts multiple providers (the UI's multi-cloud view) and converts
 // them to individual CLI-compatible manifests via toManifest().
 type ManifestRequest struct {
-	Version         string                   `json:"version"`
+	Version         string                     `json:"version"`
 	Application     manifest.ApplicationConfig `json:"application"`
 	Environment     manifest.EnvironmentConfig `json:"environment"`
 	Deployment      manifest.DeploymentConfig  `json:"deployment"`
@@ -32,17 +32,17 @@ type ManifestRequest struct {
 // like Instance, CloudRun, Container, HealthCheck, Monitoring, and IAM
 // that the UI groups under each provider.
 type UIProviderConfig struct {
-	Name             string                     `json:"name"`
-	Region           string                     `json:"region"`
-	ProjectID        string                     `json:"project_id,omitempty"`
-	BillingAccountID string                     `json:"billing_account_id,omitempty"`
-	OrganizationID   string                     `json:"organization_id,omitempty"`
-	PublicAccess     *bool                      `json:"public_access,omitempty"`
-	ResourceGroup    string                     `json:"resource_group,omitempty"`
-	SubscriptionID   string                     `json:"subscription_id,omitempty"`
-	Instance         *manifest.InstanceConfig   `json:"instance,omitempty"`
-	CloudRun         *manifest.CloudRunConfig   `json:"cloud_run,omitempty"`
-	Container        *AzureContainerConfig      `json:"container,omitempty"`
+	Name             string                      `json:"name"`
+	Region           string                      `json:"region"`
+	ProjectID        string                      `json:"project_id,omitempty"`
+	BillingAccountID string                      `json:"billing_account_id,omitempty"`
+	OrganizationID   string                      `json:"organization_id,omitempty"`
+	PublicAccess     *bool                       `json:"public_access,omitempty"`
+	ResourceGroup    string                      `json:"resource_group,omitempty"`
+	SubscriptionID   string                      `json:"subscription_id,omitempty"`
+	Instance         *manifest.InstanceConfig    `json:"instance,omitempty"`
+	CloudRun         *manifest.CloudRunConfig    `json:"cloud_run,omitempty"`
+	Container        *AzureContainerConfig       `json:"container,omitempty"`
 	HealthCheck      *manifest.HealthCheckConfig `json:"health_check,omitempty"`
 	Monitoring       *manifest.MonitoringConfig  `json:"monitoring,omitempty"`
 	IAM              *manifest.IAMConfig         `json:"iam,omitempty"`
@@ -64,13 +64,13 @@ type AzureContainerConfig struct {
 
 // CloudflareConfig is a UI-only type for Cloudflare load balancer configuration.
 type CloudflareConfig struct {
-	Enabled      bool                  `json:"enabled" yaml:"enabled"`
-	ZoneID       string                `json:"zone_id" yaml:"zone_id"`
-	AccountID    string                `json:"account_id,omitempty" yaml:"account_id,omitempty"`
-	Domain       string                `json:"domain" yaml:"domain"`
+	Enabled      bool                   `json:"enabled" yaml:"enabled"`
+	ZoneID       string                 `json:"zone_id" yaml:"zone_id"`
+	AccountID    string                 `json:"account_id,omitempty" yaml:"account_id,omitempty"`
+	Domain       string                 `json:"domain" yaml:"domain"`
 	LoadBalancer CloudflareLoadBalancer `json:"load_balancer" yaml:"load_balancer"`
-	Pools        []CloudflarePool      `json:"pools,omitempty" yaml:"pools,omitempty"`
-	Monitors     []CloudflareMonitor   `json:"monitors,omitempty" yaml:"monitors,omitempty"`
+	Pools        []CloudflarePool       `json:"pools,omitempty" yaml:"pools,omitempty"`
+	Monitors     []CloudflareMonitor    `json:"monitors,omitempty" yaml:"monitors,omitempty"`
 }
 
 type CloudflareLoadBalancer struct {
