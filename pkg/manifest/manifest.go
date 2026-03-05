@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 
 	"github.com/jvreagan/cloud-deploy/pkg/credentials"
 	"github.com/jvreagan/cloud-deploy/pkg/logging"
@@ -28,121 +27,121 @@ import (
 //	}
 type Manifest struct {
 	// Version of the manifest schema (currently "1.0")
-	Version string `yaml:"version"`
+	Version string `yaml:"version" json:"version"`
 
 	// Image is the Docker image to deploy (e.g., "myapp:latest" or "docker.io/myapp:v1.0")
 	// This should be a pre-built image available in your local Docker daemon or a registry
 	// DEPRECATED in favor of Containers for multi-container deployments
 	// For backward compatibility: if Image is set and Containers is empty, single-container mode is used
-	Image string `yaml:"image,omitempty"`
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
 
 	// Containers defines multiple containers to deploy together (multi-container deployment)
 	// If set, this takes precedence over Image field
 	// Each container runs as a separate process in the deployment
-	Containers []Container `yaml:"containers,omitempty"`
+	Containers []Container `yaml:"containers,omitempty" json:"containers,omitempty"`
 
 	// Provider configuration (cloud provider, region, credentials)
-	Provider ProviderConfig `yaml:"provider"`
+	Provider ProviderConfig `yaml:"provider" json:"provider"`
 
 	// Application configuration (name, description)
-	Application ApplicationConfig `yaml:"application"`
+	Application ApplicationConfig `yaml:"application" json:"application"`
 
 	// Environment configuration (name, subdomain)
-	Environment EnvironmentConfig `yaml:"environment"`
+	Environment EnvironmentConfig `yaml:"environment" json:"environment"`
 
 	// Deployment configuration (platform, source code location)
-	Deployment DeploymentConfig `yaml:"deployment"`
+	Deployment DeploymentConfig `yaml:"deployment" json:"deployment"`
 
 	// Instance configuration (type, scaling)
-	Instance InstanceConfig `yaml:"instance"`
+	Instance InstanceConfig `yaml:"instance" json:"instance"`
 
 	// Cloud Run configuration (GCP-specific) - optional
-	CloudRun *CloudRunConfig `yaml:"cloud_run,omitempty"`
+	CloudRun *CloudRunConfig `yaml:"cloud_run,omitempty" json:"cloud_run,omitempty"`
 
 	// Azure configuration (Azure-specific) - optional
-	Azure *AzureConfig `yaml:"azure,omitempty"`
+	Azure *AzureConfig `yaml:"azure,omitempty" json:"azure,omitempty"`
 
 	// Health check configuration
-	HealthCheck HealthCheckConfig `yaml:"health_check"`
+	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
 
 	// Monitoring configuration (CloudWatch, metrics) - optional
-	Monitoring MonitoringConfig `yaml:"monitoring,omitempty"`
+	Monitoring MonitoringConfig `yaml:"monitoring,omitempty" json:"monitoring,omitempty"`
 
 	// IAM configuration (roles, profiles) - optional
-	IAM IAMConfig `yaml:"iam,omitempty"`
+	IAM IAMConfig `yaml:"iam,omitempty" json:"iam,omitempty"`
 
 	// Environment variables to set in the deployment - optional
-	EnvironmentVariables map[string]string `yaml:"environment_variables,omitempty"`
+	EnvironmentVariables map[string]string `yaml:"environment_variables,omitempty" json:"environment_variables,omitempty"`
 
 	// Tags to apply to cloud resources - optional
-	Tags map[string]string `yaml:"tags,omitempty"`
+	Tags map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
 
 	// Ports to expose from the container - optional
-	Ports []PortMapping `yaml:"ports,omitempty"`
+	Ports []PortMapping `yaml:"ports,omitempty" json:"ports,omitempty"`
 
 	// SSL/TLS configuration (certificates, termination) - optional
-	SSL *SSLConfig `yaml:"ssl,omitempty"`
+	SSL *SSLConfig `yaml:"ssl,omitempty" json:"ssl,omitempty"`
 }
 
 // Container defines a single container in a multi-container deployment.
 type Container struct {
 	// Name of the container (must be unique within the deployment)
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Image is the Docker image for this container
-	Image string `yaml:"image"`
+	Image string `yaml:"image" json:"image"`
 
 	// Ports to expose from this container - optional
-	Ports []PortMapping `yaml:"ports,omitempty"`
+	Ports []PortMapping `yaml:"ports,omitempty" json:"ports,omitempty"`
 
 	// Environment variables for this container - optional
-	Environment map[string]string `yaml:"environment,omitempty"`
+	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 
 	// Command to override the container's default command - optional
-	Command []string `yaml:"command,omitempty"`
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
 }
 
 // PortMapping defines a container port mapping.
 type PortMapping struct {
 	// ContainerPort is the port number inside the container
-	ContainerPort int `yaml:"container"`
+	ContainerPort int `yaml:"container" json:"container"`
 
 	// HostPort is the port number to expose on the host (optional, defaults to ContainerPort)
-	HostPort int `yaml:"host,omitempty"`
+	HostPort int `yaml:"host,omitempty" json:"host,omitempty"`
 }
 
 // ProviderConfig specifies which cloud provider to use and how to authenticate.
 type ProviderConfig struct {
 	// Name of the cloud provider (aws, gcp, azure, oci)
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Region to deploy to (e.g., us-east-2, us-west-1)
-	Region string `yaml:"region"`
+	Region string `yaml:"region" json:"region"`
 
 	// Credentials for authentication - optional, can use CLI credentials instead
-	Credentials *CredentialsConfig `yaml:"credentials,omitempty"`
+	Credentials *CredentialsConfig `yaml:"credentials,omitempty" json:"credentials,omitempty"`
 
 	// GCP-specific: Project ID (required for GCP provider)
 	// The provider will create this project if it doesn't exist
-	ProjectID string `yaml:"project_id,omitempty"`
+	ProjectID string `yaml:"project_id,omitempty" json:"project_id,omitempty"`
 
 	// GCP-specific: Billing account ID (required for GCP project creation)
 	// Format: "XXXXXX-XXXXXX-XXXXXX"
 	// Find yours at: https://console.cloud.google.com/billing
-	BillingAccountID string `yaml:"billing_account_id,omitempty"`
+	BillingAccountID string `yaml:"billing_account_id,omitempty" json:"billing_account_id,omitempty"`
 
 	// GCP-specific: Make Cloud Run service publicly accessible (default: true)
-	PublicAccess *bool `yaml:"public_access,omitempty"`
+	PublicAccess *bool `yaml:"public_access,omitempty" json:"public_access,omitempty"`
 
 	// GCP-specific: Organization ID (optional, for creating projects under an organization)
-	OrganizationID string `yaml:"organization_id,omitempty"`
+	OrganizationID string `yaml:"organization_id,omitempty" json:"organization_id,omitempty"`
 
 	// Azure-specific: Subscription ID (required for Azure provider)
-	SubscriptionID string `yaml:"subscription_id,omitempty"`
+	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"`
 
 	// Azure-specific: Resource Group name (required for Azure provider)
 	// Will be created if it doesn't exist
-	ResourceGroup string `yaml:"resource_group,omitempty"`
+	ResourceGroup string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`
 }
 
 // CredentialsConfig contains cloud provider credentials.
@@ -152,164 +151,164 @@ type CredentialsConfig struct {
 	// - "manifest": Use credentials specified directly in this manifest
 	// - "environment": Use environment variables (AWS_ACCESS_KEY_ID, etc.)
 	// - "cli": Use cloud provider CLI credentials (default)
-	Source string `yaml:"source,omitempty"`
+	Source string `yaml:"source,omitempty" json:"source,omitempty"`
 
 	// AWS: Access key ID (used when Source is "manifest")
-	AccessKeyID string `yaml:"access_key_id,omitempty"`
+	AccessKeyID string `yaml:"access_key_id,omitempty" json:"access_key_id,omitempty"`
 
 	// AWS: Secret access key (used when Source is "manifest")
-	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
+	SecretAccessKey string `yaml:"secret_access_key,omitempty" json:"secret_access_key,omitempty"`
 
 	// GCP: Path to service account JSON key file (used when Source is "manifest")
-	ServiceAccountKeyPath string `yaml:"service_account_key_path,omitempty"`
+	ServiceAccountKeyPath string `yaml:"service_account_key_path,omitempty" json:"service_account_key_path,omitempty"`
 
 	// GCP: Or provide service account JSON content directly (used when Source is "manifest")
-	ServiceAccountKeyJSON string `yaml:"service_account_key_json,omitempty"`
+	ServiceAccountKeyJSON string `yaml:"service_account_key_json,omitempty" json:"service_account_key_json,omitempty"`
 
 	// Azure: Service Principal credentials (used when Source is "manifest")
-	Azure *AzureCredentialsConfig `yaml:"azure,omitempty"`
+	Azure *AzureCredentialsConfig `yaml:"azure,omitempty" json:"azure,omitempty"`
 }
 
 // AzureCredentialsConfig contains Azure Service Principal credentials.
 type AzureCredentialsConfig struct {
 	// Client ID (Application ID) of the Service Principal
-	ClientID string `yaml:"client_id,omitempty"`
+	ClientID string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
 
 	// Client Secret of the Service Principal
-	ClientSecret string `yaml:"client_secret,omitempty"`
+	ClientSecret string `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
 
 	// Tenant ID (Directory ID)
-	TenantID string `yaml:"tenant_id,omitempty"`
+	TenantID string `yaml:"tenant_id,omitempty" json:"tenant_id,omitempty"`
 }
 
 // ApplicationConfig defines the application being deployed.
 type ApplicationConfig struct {
 	// Name of the application (must be unique within the cloud account)
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Description of the application - optional
-	Description string `yaml:"description,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // EnvironmentConfig defines the environment for the application.
 // An environment is a running instance of the application (e.g., dev, staging, prod).
 type EnvironmentConfig struct {
 	// Name of the environment (must be unique within the application)
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// CName/subdomain for the environment (creates: <cname>.<region>.<provider>.com)
-	CName string `yaml:"cname"`
+	CName string `yaml:"cname" json:"cname,omitempty"`
 }
 
 // DeploymentConfig specifies how the application should be deployed.
 type DeploymentConfig struct {
 	// Platform type (e.g., docker, nodejs, python)
-	Platform string `yaml:"platform"`
+	Platform string `yaml:"platform" json:"platform,omitempty"`
 
 	// Solution stack or runtime version (provider-specific, optional - will auto-detect if not specified)
-	SolutionStack string `yaml:"solution_stack,omitempty"`
+	SolutionStack string `yaml:"solution_stack,omitempty" json:"solution_stack,omitempty"`
 
 	// Source code location
-	Source SourceConfig `yaml:"source"`
+	Source SourceConfig `yaml:"source" json:"source"`
 }
 
 // SourceConfig specifies where the application source code is located.
 type SourceConfig struct {
 	// Type of source (local, s3, git)
-	Type string `yaml:"type"`
+	Type string `yaml:"type" json:"type"`
 
 	// Path to source code (file path, S3 URL, or git repository)
-	Path string `yaml:"path"`
+	Path string `yaml:"path" json:"path,omitempty"`
 }
 
 // InstanceConfig specifies the compute resources for the deployment.
 type InstanceConfig struct {
 	// Type of instance (e.g., t3.micro, t3.small)
-	Type string `yaml:"type"`
+	Type string `yaml:"type" json:"type,omitempty"`
 
 	// Environment type: SingleInstance or LoadBalanced
-	EnvironmentType string `yaml:"environment_type"`
+	EnvironmentType string `yaml:"environment_type" json:"environment_type,omitempty"`
 }
 
 // CloudRunConfig specifies GCP Cloud Run-specific configuration.
 type CloudRunConfig struct {
 	// CPU allocation (e.g., "1", "2", "4") - default: "1"
-	CPU string `yaml:"cpu,omitempty"`
+	CPU string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
 
 	// Memory allocation (e.g., "256Mi", "512Mi", "1Gi", "2Gi") - default: "512Mi"
-	Memory string `yaml:"memory,omitempty"`
+	Memory string `yaml:"memory,omitempty" json:"memory,omitempty"`
 
 	// Maximum number of concurrent requests per container - default: 80
-	MaxConcurrency int32 `yaml:"max_concurrency,omitempty"`
+	MaxConcurrency int32 `yaml:"max_concurrency,omitempty" json:"max_concurrency,omitempty"`
 
 	// Minimum number of instances to keep running - default: 0 (scale to zero)
-	MinInstances int32 `yaml:"min_instances,omitempty"`
+	MinInstances int32 `yaml:"min_instances,omitempty" json:"min_instances,omitempty"`
 
 	// Maximum number of instances to scale to - default: 100
-	MaxInstances int32 `yaml:"max_instances,omitempty"`
+	MaxInstances int32 `yaml:"max_instances,omitempty" json:"max_instances,omitempty"`
 
 	// Request timeout in seconds (max: 3600 for 1st gen, 86400 for 2nd gen) - default: 300
-	TimeoutSeconds int32 `yaml:"timeout_seconds,omitempty"`
+	TimeoutSeconds int32 `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
 }
 
 // AzureConfig specifies Azure Container Instances-specific configuration.
 type AzureConfig struct {
 	// CPU allocation in cores (e.g., 1.0, 2.0) - default: 1.0
-	CPU float64 `yaml:"cpu,omitempty"`
+	CPU float64 `yaml:"cpu,omitempty" json:"cpu,omitempty"`
 
 	// Memory allocation in GB (e.g., 1.5, 2.0, 4.0) - default: 1.5
-	MemoryGB float64 `yaml:"memory_gb,omitempty"`
+	MemoryGB float64 `yaml:"memory_gb,omitempty" json:"memory_gb,omitempty"`
 }
 
 // HealthCheckConfig defines how the cloud provider should check application health.
 type HealthCheckConfig struct {
 	// Type of health check (basic or enhanced)
-	Type string `yaml:"type"`
+	Type string `yaml:"type" json:"type,omitempty"`
 
 	// Path to health check endpoint (e.g., /health, /api/status)
-	Path string `yaml:"path"`
+	Path string `yaml:"path" json:"path,omitempty"`
 }
 
 // MonitoringConfig defines monitoring and metrics collection settings.
 type MonitoringConfig struct {
 	// Enable enhanced health reporting (default: false)
 	// Enhanced health provides detailed metrics like ApplicationRequests2xx, latency, etc.
-	EnhancedHealth bool `yaml:"enhanced_health,omitempty"`
+	EnhancedHealth bool `yaml:"enhanced_health,omitempty" json:"enhanced_health,omitempty"`
 
 	// Enable CloudWatch custom metrics collection (default: false)
 	// This enables application-level metrics beyond basic EC2 metrics
-	CloudWatchMetrics bool `yaml:"cloudwatch_metrics,omitempty"`
+	CloudWatchMetrics bool `yaml:"cloudwatch_metrics,omitempty" json:"cloudwatch_metrics,omitempty"`
 
 	// CloudWatch Logs configuration (optional)
-	CloudWatchLogs *CloudWatchLogsConfig `yaml:"cloudwatch_logs,omitempty"`
+	CloudWatchLogs *CloudWatchLogsConfig `yaml:"cloudwatch_logs,omitempty" json:"cloudwatch_logs,omitempty"`
 }
 
 // CloudWatchLogsConfig defines CloudWatch Logs streaming settings.
 type CloudWatchLogsConfig struct {
 	// Enable streaming logs to CloudWatch (default: false)
-	Enabled bool `yaml:"enabled,omitempty"`
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 
 	// Log retention in days (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653)
-	RetentionDays int `yaml:"retention_days,omitempty"`
+	RetentionDays int `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
 
 	// Stream application logs (default: true if enabled)
-	StreamLogs bool `yaml:"stream_logs,omitempty"`
+	StreamLogs bool `yaml:"stream_logs,omitempty" json:"stream_logs,omitempty"`
 }
 
 // IAMConfig specifies IAM roles and profiles to use.
 // This allows the application to access other cloud resources securely.
 type IAMConfig struct {
 	// Instance profile for EC2/compute instances - optional
-	InstanceProfile string `yaml:"instance_profile,omitempty"`
+	InstanceProfile string `yaml:"instance_profile,omitempty" json:"instance_profile,omitempty"`
 
 	// Service role for the cloud service - optional
-	ServiceRole string `yaml:"service_role,omitempty"`
+	ServiceRole string `yaml:"service_role,omitempty" json:"service_role,omitempty"`
 }
 
 // SSLConfig defines SSL/TLS certificate configuration.
 type SSLConfig struct {
 	// CertificateArn is the AWS ACM certificate ARN for HTTPS (AWS only)
-	CertificateArn string `yaml:"certificate_arn,omitempty"`
+	CertificateArn string `yaml:"certificate_arn,omitempty" json:"certificate_arn,omitempty"`
 }
 
 // Load reads a manifest file from disk, parses it, and validates it.
@@ -429,38 +428,21 @@ func (m *Manifest) GetCloudCredentials(ctx context.Context) (*credentials.Provid
 	case "environment":
 		// Use environment variables
 		credMgr.Source = "environment"
-		logging.Info("📦 Loading %s credentials from environment variables...\n", m.Provider.Name)
+		logging.Infof("📦 Loading %s credentials from environment variables...", m.Provider.Name)
 		return credMgr.GetCredentials(ctx, m.Provider.Name)
 
 	case "manifest":
 		// Credentials are directly in the manifest (return nil to use default behavior)
-		logging.Info("📦 Using %s credentials from manifest...\n", m.Provider.Name)
+		logging.Infof("📦 Using %s credentials from manifest...", m.Provider.Name)
 		return nil, nil
 
 	case "cli":
 		fallthrough
 	default:
 		// Use cloud provider CLI credentials (default behavior)
-		logging.Info("📦 Using %s credentials from CLI...\n", m.Provider.Name)
+		logging.Infof("📦 Using %s credentials from CLI...", m.Provider.Name)
 		return nil, nil
 	}
-}
-
-// expandEnvVars expands environment variable references in the format ${VAR_NAME}.
-// For example: "${VAULT_TOKEN}" becomes the value of the VAULT_TOKEN environment variable.
-func expandEnvVars(s string) string {
-	if s == "" {
-		return s
-	}
-
-	// Match ${VAR_NAME} pattern
-	re := regexp.MustCompile(`\$\{([^}]+)\}`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
-		// Extract variable name (remove ${ and })
-		varName := match[2 : len(match)-1]
-		// Get environment variable value
-		return os.Getenv(varName)
-	})
 }
 
 // IsMultiContainer returns true if this manifest defines a multi-container deployment.

@@ -61,7 +61,7 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	}
 
 	// Create or get registry
-	logging.Info("Ensuring ACR registry exists: %s\n", a.registryName)
+	logging.Infof("Ensuring ACR registry exists: %s", a.registryName)
 
 	// Try to get existing registry first
 	getResp, err := client.Get(ctx, a.resourceGroup, a.registryName, nil)
@@ -69,7 +69,7 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 
 	if err != nil {
 		// Registry doesn't exist, create it
-		logging.Info("Creating ACR registry: %s\n", a.registryName)
+		logging.Infof("Creating ACR registry: %s", a.registryName)
 
 		poller, err := client.BeginCreate(ctx, a.resourceGroup, a.registryName, armcontainerregistry.Registry{
 			Location: to.Ptr(a.location),
@@ -89,9 +89,9 @@ func (a *ACRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 			return nil, fmt.Errorf("failed to create ACR registry: %w", err)
 		}
 		registry = &resp.Registry
-		logging.Info("Created ACR registry: %s\n", a.registryName)
+		logging.Infof("Created ACR registry: %s", a.registryName)
 	} else {
-		logging.Info("ACR registry %s already exists\n", a.registryName)
+		logging.Infof("ACR registry %s already exists", a.registryName)
 		registry = &getResp.Registry
 	}
 

@@ -173,7 +173,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	// Step 3: Push image to ACR with timestamped tag for rollback support
-	logging.Info("\n=== Distributing image to ACR ===")
+	logging.Info("=== Distributing image to ACR ===")
 	deployTag := fmt.Sprintf("deploy-%s", time.Now().UTC().Format("20060102T150405"))
 	acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, deployTag)
 	if err != nil {
@@ -190,7 +190,7 @@ func (p *Provider) Deploy(ctx context.Context, m *manifest.Manifest) (*types.Dep
 	}
 
 	imageURI := imageURIs[acrRegistry.GetRegistryURL()]
-	logging.Info("Successfully pushed image to ACR: %s\n", imageURI)
+	logging.Infof("Successfully pushed image to ACR: %s", imageURI)
 
 	// Step 4: Deploy to Azure Container Instances
 	containerGroupName := m.Environment.Name
@@ -231,11 +231,11 @@ func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifes
 	}
 
 	// Step 3: Push ALL container images to ACR
-	logging.Info("Distributing %d container images to ACR...", len(m.Containers))
+	logging.Infof("Distributing %d container images to ACR...", len(m.Containers))
 	containerImageURIs := make(map[string]string) // container name -> ACR URI
 
 	for _, container := range m.Containers {
-		logging.Info("Pushing container image: %s (%s)", container.Name, container.Image)
+		logging.Infof("Pushing container image: %s (%s)", container.Name, container.Image)
 
 		acrRegistry, err := registry.NewACRRegistry(p.credential, p.subscriptionID, p.resourceGroup, registryName, p.location, container.Name)
 		if err != nil {
@@ -252,7 +252,7 @@ func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifes
 
 		imageURI := imageURIs[acrRegistry.GetRegistryURL()]
 		containerImageURIs[container.Name] = imageURI
-		logging.Info("Image pushed to ACR: %s -> %s", container.Name, imageURI)
+		logging.Infof("Image pushed to ACR: %s -> %s", container.Name, imageURI)
 	}
 
 	// Step 4: Deploy multi-container group to Azure Container Instances
@@ -284,7 +284,7 @@ func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifes
 // - Terminating the container group
 // - Optionally removing the container registry
 func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
-	logging.Info("Terminating container group: %s\n", m.Environment.Name)
+	logging.Infof("Terminating container group: %s", m.Environment.Name)
 
 	poller, err := p.containerClient.BeginDelete(ctx, p.resourceGroup, m.Environment.Name, nil)
 	if err != nil {
@@ -303,7 +303,7 @@ func (p *Provider) Destroy(ctx context.Context, m *manifest.Manifest) error {
 // Stop stops the running container group without deleting it.
 // The container group is preserved and can be restarted by running Deploy again.
 func (p *Provider) Stop(ctx context.Context, m *manifest.Manifest) error {
-	logging.Info("Stopping container group: %s\n", m.Environment.Name)
+	logging.Infof("Stopping container group: %s", m.Environment.Name)
 
 	_, err := p.containerClient.Stop(ctx, p.resourceGroup, m.Environment.Name, nil)
 	if err != nil {
@@ -369,7 +369,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 	}
 
 	currentImage := *containerGroup.Properties.Containers[0].Properties.Image
-	logging.Info("Current image: %s\n", currentImage)
+	logging.Infof("Current image: %s", currentImage)
 
 	// Step 2: List all images in ACR to find previous version
 	registryName := p.generateRegistryName(m.Application.Name)
@@ -380,7 +380,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 		return nil, fmt.Errorf("failed to find previous image: %w", err)
 	}
 
-	logging.Info("Rolling back to previous image: %s\n", previousImage)
+	logging.Infof("Rolling back to previous image: %s", previousImage)
 
 	// Step 3: Update container group with previous image
 	containerGroup.Properties.Containers[0].Properties.Image = to.Ptr(previousImage)
@@ -416,7 +416,7 @@ func (p *Provider) Rollback(ctx context.Context, m *manifest.Manifest) (*types.D
 
 // ensureResourceGroup creates the resource group if it doesn't exist.
 func (p *Provider) ensureResourceGroup(ctx context.Context) error {
-	logging.Info("Ensuring resource group exists: %s\n", p.resourceGroup)
+	logging.Infof("Ensuring resource group exists: %s", p.resourceGroup)
 
 	_, err := p.resourceGroupClient.CreateOrUpdate(ctx, p.resourceGroup, armresources.ResourceGroup{
 		Location: to.Ptr(p.location),
@@ -456,7 +456,7 @@ func (p *Provider) generateRegistryName(appName string) string {
 // ensureContainerRegistry creates or gets an Azure Container Registry.
 // Returns the login server URL and admin password.
 func (p *Provider) ensureContainerRegistry(ctx context.Context, registryName string) (string, string, error) {
-	logging.Info("Ensuring container registry exists: %s\n", registryName)
+	logging.Infof("Ensuring container registry exists: %s", registryName)
 
 	// Check if registry exists
 	_, err := p.registryClient.Get(ctx, p.resourceGroup, registryName, nil)
@@ -466,7 +466,7 @@ func (p *Provider) ensureContainerRegistry(ctx context.Context, registryName str
 	}
 
 	// Create registry
-	logging.Info("Creating new container registry: %s\n", registryName)
+	logging.Infof("Creating new container registry: %s", registryName)
 	poller, err := p.registryClient.BeginCreate(ctx, p.resourceGroup, registryName, armcontainerregistry.Registry{
 		Location: to.Ptr(p.location),
 		SKU: &armcontainerregistry.SKU{
@@ -515,7 +515,7 @@ func (p *Provider) getRegistryCredentials(ctx context.Context, registryName stri
 
 // deployContainerGroup creates or updates an Azure Container Instance.
 func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifest, name, image, registryName, registryPassword string) (string, error) {
-	logging.Info("Deploying container group: %s\n", name)
+	logging.Infof("Deploying container group: %s", name)
 
 	// Build environment variables
 	envVars := make([]*armcontainerinstance.EnvironmentVariable, 0, len(m.EnvironmentVariables))
@@ -632,7 +632,7 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 
 // deployMultiContainerGroup deploys a Container Group with multiple containers.
 func (p *Provider) deployMultiContainerGroup(ctx context.Context, m *manifest.Manifest, name string, containerImageURIs map[string]string, registryName, registryPassword string) (string, error) {
-	logging.Info("Deploying multi-container group: %s with %d containers", name, len(m.Containers))
+	logging.Infof("Deploying multi-container group: %s with %d containers", name, len(m.Containers))
 
 	// Get registry login server
 	registryLoginServer, _, err := p.getRegistryCredentials(ctx, registryName)
@@ -751,7 +751,7 @@ func (p *Provider) deployMultiContainerGroup(ctx context.Context, m *manifest.Ma
 		fqdn = *result.Properties.IPAddress.Fqdn
 	}
 
-	logging.Info("Multi-container group deployed successfully with %d containers", len(containers))
+	logging.Infof("Multi-container group deployed successfully with %d containers", len(containers))
 	return fqdn, nil
 }
 
@@ -781,7 +781,7 @@ func (p *Provider) waitForContainerGroup(ctx context.Context, name string) error
 				state = *resp.Properties.ProvisioningState
 			}
 
-			logging.Info("Container group status: %s\n", state)
+			logging.Infof("Container group status: %s", state)
 
 			if state == "Succeeded" {
 				// Check if container is running

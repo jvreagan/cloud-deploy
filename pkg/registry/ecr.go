@@ -68,7 +68,7 @@ func (e *ECRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	ecrClient := ecr.NewFromConfig(e.config)
 
 	// Create repository if it doesn't exist
-	logging.Info("Ensuring ECR repository exists: %s\n", e.repositoryName)
+	logging.Infof("Ensuring ECR repository exists: %s", e.repositoryName)
 	_, err = ecrClient.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(e.repositoryName),
 	})
@@ -77,9 +77,9 @@ func (e *ECRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 		if !strings.Contains(err.Error(), "RepositoryAlreadyExistsException") {
 			return nil, fmt.Errorf("failed to create ECR repository: %w", err)
 		}
-		logging.Info("Repository %s already exists\n", e.repositoryName)
+		logging.Infof("Repository %s already exists", e.repositoryName)
 	} else {
-		logging.Info("Created ECR repository: %s\n", e.repositoryName)
+		logging.Infof("Created ECR repository: %s", e.repositoryName)
 	}
 
 	// Get authorization token

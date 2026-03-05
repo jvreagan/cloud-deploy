@@ -205,7 +205,7 @@ func (p *Provider) deployMultiContainer(ctx context.Context, m *manifest.Manifes
 	}
 
 	// Step 2: Push ALL container images to ECR
-	logging.Info("Distributing %d container images to ECR", len(m.Containers))
+	logging.Infof("Distributing %d container images to ECR", len(m.Containers))
 	containerImageURIs := make(map[string]string) // container name -> ECR URI
 
 	for _, container := range m.Containers {
@@ -451,38 +451,6 @@ func (p *Provider) ensureBucket(ctx context.Context, bucketName string) error {
 	return err
 }
 
-// uploadSource zips the source directory and uploads it to S3.
-func (p *Provider) uploadSource(ctx context.Context, sourcePath, bucketName, s3Key string) error {
-	logging.Info("Zipping source code")
-
-	// Create temporary zip file
-	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(zipFile.Name())
-	defer zipFile.Close()
-
-	// Zip the source directory
-	if err := zipDirectory(sourcePath, zipFile); err != nil {
-		return fmt.Errorf("failed to zip directory: %w", err)
-	}
-
-	// Rewind to beginning of file
-	if _, err := zipFile.Seek(0, 0); err != nil {
-		return fmt.Errorf("failed to seek: %w", err)
-	}
-
-	// Upload to S3
-	logging.Info("Uploading to S3", "bucket", bucketName, "key", s3Key)
-	_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(s3Key),
-		Body:   zipFile,
-	})
-	return err
-}
-
 // uploadDockerrun creates a Dockerrun.aws.json file for the ECR image and uploads it to S3.
 func (p *Provider) uploadDockerrun(ctx context.Context, m *manifest.Manifest, imageURI, bucketName, s3Key string) error {
 	logging.Info("Creating Dockerrun.aws.json")
@@ -669,7 +637,7 @@ func (p *Provider) uploadDockerCompose(ctx context.Context, m *manifest.Manifest
 		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
 	}
 
-	logging.Info("docker-compose.yml created with %d services", len(m.Containers))
+	logging.Infof("docker-compose.yml created with %d services", len(m.Containers))
 
 	// Create temporary zip file
 	zipFile, err := os.CreateTemp("", "cloud-deploy-*.zip")

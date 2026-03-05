@@ -53,7 +53,7 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 	imageURIs := make(map[string]string)
 
 	// Load image from Docker daemon once
-	logging.Info("Loading image %s from Docker daemon...\n", d.sourceImage)
+	logging.Infof("Loading image %s from Docker daemon...", d.sourceImage)
 	sourceRef, err := name.ParseReference(d.sourceImage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse source image reference: %w", err)
@@ -67,7 +67,7 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 
 	// Distribute to each registry
 	for _, registry := range d.registries {
-		logging.Info("\n=== Distributing to %s ===\n", registry.GetRegistryURL())
+		logging.Infof("=== Distributing to %s ===", registry.GetRegistryURL())
 
 		// Get authenticator
 		logging.Info("Preparing authentication...")
@@ -81,14 +81,14 @@ func (d *Distributor) Distribute(ctx context.Context) (map[string]string, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse target image reference: %w", err)
 		}
-		logging.Info("Target: %s\n", targetRef.Name())
+		logging.Infof("Target: %s", targetRef.Name())
 
 		// Push image to registry using OCI Distribution API
-		logging.Info("Pushing image to %s...\n", registry.GetRegistryURL())
+		logging.Infof("Pushing image to %s...", registry.GetRegistryURL())
 		if err := remote.Write(targetRef, img, remote.WithAuth(auth), remote.WithContext(ctx)); err != nil {
 			return nil, fmt.Errorf("failed to push image to registry %s: %w", registry.GetRegistryURL(), err)
 		}
-		logging.Info("Successfully pushed to %s\n", registry.GetRegistryURL())
+		logging.Infof("Successfully pushed to %s", registry.GetRegistryURL())
 
 		imageURIs[registry.GetRegistryURL()] = registry.GetImageURI()
 	}

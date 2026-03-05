@@ -73,7 +73,7 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	}
 
 	// Create repository if it doesn't exist
-	logging.Info("Ensuring Artifact Registry repository exists: %s\n", g.repositoryName)
+	logging.Infof("Ensuring Artifact Registry repository exists: %s", g.repositoryName)
 
 	parent := fmt.Sprintf("projects/%s/locations/%s", g.projectID, g.region)
 	repoName := fmt.Sprintf("%s/repositories/%s", parent, g.repositoryName)
@@ -82,7 +82,7 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 	_, err = client.Projects.Locations.Repositories.Get(repoName).Context(ctx).Do()
 	if err != nil {
 		// Repository doesn't exist, create it
-		logging.Info("Creating Artifact Registry repository: %s\n", g.repositoryName)
+		logging.Infof("Creating Artifact Registry repository: %s", g.repositoryName)
 
 		repo := &artifactregistry.Repository{
 			Format:      "DOCKER",
@@ -98,12 +98,12 @@ func (g *GCRRegistry) GetAuthenticator(ctx context.Context) (authn.Authenticator
 			if !strings.Contains(err.Error(), "already exists") {
 				return nil, fmt.Errorf("failed to create Artifact Registry repository: %w", err)
 			}
-			logging.Info("Repository %s already exists\n", g.repositoryName)
+			logging.Infof("Repository %s already exists", g.repositoryName)
 		} else {
-			logging.Info("Created Artifact Registry repository: %s\n", g.repositoryName)
+			logging.Infof("Created Artifact Registry repository: %s", g.repositoryName)
 		}
 	} else {
-		logging.Info("Artifact Registry repository %s already exists\n", g.repositoryName)
+		logging.Infof("Artifact Registry repository %s already exists", g.repositoryName)
 	}
 
 	// Get OAuth2 token source from service account credentials

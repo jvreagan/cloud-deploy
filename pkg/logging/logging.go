@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"regexp"
@@ -96,24 +97,44 @@ func SanitizeMap(m map[string]interface{}) map[string]interface{} {
 	return sanitized
 }
 
-// Info logs an informational message
+// Info logs an informational message with structured key-value pairs.
 func Info(msg string, args ...any) {
 	logger.Info(msg, args...)
 }
 
-// Debug logs a debug message
+// Infof logs an informational message using printf-style formatting.
+func Infof(format string, args ...any) {
+	logger.Info(fmt.Sprintf(strings.TrimRight(format, "\n"), args...))
+}
+
+// Debug logs a debug message with structured key-value pairs.
 func Debug(msg string, args ...any) {
 	logger.Debug(msg, args...)
 }
 
-// Warn logs a warning message
+// Debugf logs a debug message using printf-style formatting.
+func Debugf(format string, args ...any) {
+	logger.Debug(fmt.Sprintf(strings.TrimRight(format, "\n"), args...))
+}
+
+// Warn logs a warning message with structured key-value pairs.
 func Warn(msg string, args ...any) {
 	logger.Warn(msg, args...)
 }
 
-// Error logs an error message
+// Warnf logs a warning message using printf-style formatting.
+func Warnf(format string, args ...any) {
+	logger.Warn(fmt.Sprintf(strings.TrimRight(format, "\n"), args...))
+}
+
+// Error logs an error message with structured key-value pairs.
 func Error(msg string, args ...any) {
 	logger.Error(msg, args...)
+}
+
+// Errorf logs an error message using printf-style formatting.
+func Errorf(format string, args ...any) {
+	logger.Error(fmt.Sprintf(strings.TrimRight(format, "\n"), args...))
 }
 
 // InfoContext logs with additional context fields

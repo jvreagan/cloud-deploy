@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jvreagan/cloud-deploy/pkg/manifest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,36 +18,36 @@ func TestGenerateManifestHandler_AWS(t *testing.T) {
 	// Prepare test request
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Providers: []ProviderConfig{
+		Providers: []UIProviderConfig{
 			{
 				Name:   "aws",
 				Region: "us-east-2",
-				Instance: &InstanceConfig{
+				Instance: &manifest.InstanceConfig{
 					Type:            "t3.micro",
 					EnvironmentType: "SingleInstance",
 				},
-				HealthCheck: &HealthCheckConfig{
+				HealthCheck: &manifest.HealthCheckConfig{
 					Type: "enhanced",
 					Path: "/health",
 				},
-				Monitoring: &MonitoringConfig{
+				Monitoring: &manifest.MonitoringConfig{
 					EnhancedHealth:    true,
 					CloudWatchMetrics: true,
 				},
 			},
 		},
-		Application: ApplicationConfig{
+		Application: manifest.ApplicationConfig{
 			Name:        "test-app",
 			Description: "Test application",
 		},
-		Environment: EnvironmentConfig{
+		Environment: manifest.EnvironmentConfig{
 			Name:  "test-env",
-			Cname: "test-app",
+			CName: "test-app",
 		},
-		Deployment: DeploymentConfig{
+		Deployment: manifest.DeploymentConfig{
 			Platform:      "docker",
 			SolutionStack: "64bit Amazon Linux 2023 v4.7.2 running Docker",
-			Source: SourceConfig{
+			Source: manifest.SourceConfig{
 				Type: "local",
 				Path: ".",
 			},
@@ -110,26 +111,28 @@ func TestGenerateManifestHandler_AWS(t *testing.T) {
 			t.Fatalf("Failed to read manifest file: %v", err)
 		}
 
-		var manifest map[string]interface{}
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
+		var m map[string]interface{}
+		if err := yaml.Unmarshal(data, &m); err != nil {
 			t.Fatalf("Generated manifest is not valid YAML: %v", err)
 		}
 
 		// Verify key fields
-		if manifest["version"] != "1.0" {
+		if m["version"] != "1.0" {
 			t.Errorf("Version mismatch in generated manifest")
 		}
 
-		providers, ok := manifest["providers"].([]interface{})
-		if !ok || len(providers) == 0 {
-			t.Fatalf("Providers array not found in manifest")
-		}
-		provider, ok := providers[0].(map[string]interface{})
+		// Verify CLI-compatible: singular "provider" (not "providers" array)
+		provider, ok := m["provider"].(map[string]interface{})
 		if !ok {
-			t.Fatalf("Provider not found in manifest")
+			t.Fatalf("Expected singular 'provider' key in manifest, got keys: %v", keys(m))
 		}
 		if provider["name"] != "aws" {
 			t.Errorf("Provider name mismatch")
+		}
+
+		// Verify no "providers" array
+		if _, hasProviders := m["providers"]; hasProviders {
+			t.Errorf("Generated manifest should not contain 'providers' array")
 		}
 
 		// Cleanup
@@ -141,14 +144,14 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 	publicAccess := true
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Providers: []ProviderConfig{
+		Providers: []UIProviderConfig{
 			{
 				Name:             "gcp",
 				Region:           "us-central1",
 				ProjectID:        "test-project",
 				BillingAccountID: "123456-123456-123456",
 				PublicAccess:     &publicAccess,
-				CloudRun: &CloudRunConfig{
+				CloudRun: &manifest.CloudRunConfig{
 					CPU:            "2",
 					Memory:         "1Gi",
 					MaxConcurrency: 100,
@@ -156,8 +159,8 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 					MaxInstances:   10,
 					TimeoutSeconds: 600,
 				},
-				Monitoring: &MonitoringConfig{
-					CloudWatchLogs: &CloudWatchLogsConfig{
+				Monitoring: &manifest.MonitoringConfig{
+					CloudWatchLogs: &manifest.CloudWatchLogsConfig{
 						Enabled:       true,
 						RetentionDays: 7,
 						StreamLogs:    true,
@@ -165,16 +168,16 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 				},
 			},
 		},
-		Application: ApplicationConfig{
+		Application: manifest.ApplicationConfig{
 			Name:        "test-gcp-app",
 			Description: "Test GCP application",
 		},
-		Environment: EnvironmentConfig{
+		Environment: manifest.EnvironmentConfig{
 			Name: "test-gcp-env",
 		},
-		Deployment: DeploymentConfig{
+		Deployment: manifest.DeploymentConfig{
 			Platform: "docker",
-			Source: SourceConfig{
+			Source: manifest.SourceConfig{
 				Type: "local",
 				Path: ".",
 			},
@@ -222,19 +225,15 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 			t.Fatalf("Failed to read manifest file: %v", err)
 		}
 
-		var manifest map[string]interface{}
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
+		var m map[string]interface{}
+		if err := yaml.Unmarshal(data, &m); err != nil {
 			t.Fatalf("Generated manifest is not valid YAML: %v", err)
 		}
 
-		// Verify GCP-specific fields
-		providers, ok := manifest["providers"].([]interface{})
-		if !ok || len(providers) == 0 {
-			t.Fatalf("Providers array not found in manifest")
-		}
-		provider, ok := providers[0].(map[string]interface{})
+		// Verify CLI-compatible singular provider
+		provider, ok := m["provider"].(map[string]interface{})
 		if !ok {
-			t.Fatalf("Provider not found in manifest")
+			t.Fatalf("Expected singular 'provider' key in manifest")
 		}
 		if provider["name"] != "gcp" {
 			t.Errorf("Provider name mismatch")
@@ -244,9 +243,9 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 		}
 
 		// Verify Cloud Run config
-		cloudRun, ok := provider["cloud_run"].(map[string]interface{})
+		cloudRun, ok := m["cloud_run"].(map[string]interface{})
 		if !ok {
-			t.Fatalf("Cloud Run config not found in provider")
+			t.Fatalf("Cloud Run config not found in manifest")
 		}
 		if cloudRun["cpu"] != "2" {
 			t.Errorf("CPU mismatch in Cloud Run config")
@@ -258,14 +257,14 @@ func TestGenerateManifestHandler_GCP(t *testing.T) {
 }
 
 func TestGenerateManifestHandler_MultiCloud(t *testing.T) {
-	// Test multi-cloud deployment with Cloudflare
+	// Test multi-cloud deployment generates separate files per provider
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Providers: []ProviderConfig{
+		Providers: []UIProviderConfig{
 			{
 				Name:   "aws",
 				Region: "us-east-1",
-				Instance: &InstanceConfig{
+				Instance: &manifest.InstanceConfig{
 					Type:            "t3.micro",
 					EnvironmentType: "SingleInstance",
 				},
@@ -274,7 +273,7 @@ func TestGenerateManifestHandler_MultiCloud(t *testing.T) {
 				Name:      "gcp",
 				Region:    "us-central1",
 				ProjectID: "test-project",
-				CloudRun: &CloudRunConfig{
+				CloudRun: &manifest.CloudRunConfig{
 					CPU:    "1",
 					Memory: "512Mi",
 				},
@@ -289,16 +288,16 @@ func TestGenerateManifestHandler_MultiCloud(t *testing.T) {
 				},
 			},
 		},
-		Application: ApplicationConfig{
+		Application: manifest.ApplicationConfig{
 			Name:        "test-multicloud-app",
 			Description: "Multi-cloud test application",
 		},
-		Environment: EnvironmentConfig{
+		Environment: manifest.EnvironmentConfig{
 			Name: "test-multicloud-env",
 		},
-		Deployment: DeploymentConfig{
+		Deployment: manifest.DeploymentConfig{
 			Platform: "docker",
-			Source: SourceConfig{
+			Source: manifest.SourceConfig{
 				Type: "docker",
 				Path: "myapp:latest",
 			},
@@ -350,56 +349,53 @@ func TestGenerateManifestHandler_MultiCloud(t *testing.T) {
 		t.Logf("Response body: %s", rr.Body.String())
 	}
 
-	var response map[string]string
+	var response map[string]interface{}
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
-	if !strings.HasPrefix(response["filename"], "multi-cloud-manifest-") {
-		t.Errorf("Unexpected filename format: %s", response["filename"])
+	// Verify multiple files were generated
+	filenames, ok := response["filenames"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected filenames array in response")
 	}
 
-	// Verify file
-	filePath := response["path"]
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		t.Errorf("Manifest file was not created: %s", filePath)
-	} else {
+	// Should have 3 provider files + 1 cloudflare config = 4 files
+	if len(filenames) != 4 {
+		t.Errorf("Expected 4 files (3 providers + cloudflare), got %d: %v", len(filenames), filenames)
+	}
+
+	// Verify each provider file is CLI-compatible (singular provider key)
+	manifestsDir := "generated-manifests"
+	for _, fn := range filenames[:3] { // Skip cloudflare config
+		filename := fn.(string)
+		filePath := filepath.Join(manifestsDir, filename)
+
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			t.Fatalf("Failed to read manifest file: %v", err)
+			t.Fatalf("Failed to read manifest file %s: %v", filename, err)
 		}
 
-		var manifest map[string]interface{}
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
-			t.Fatalf("Generated manifest is not valid YAML: %v", err)
+		var m map[string]interface{}
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			t.Fatalf("Generated manifest %s is not valid YAML: %v", filename, err)
 		}
 
-		// Verify multi-cloud setup
-		providers, ok := manifest["providers"].([]interface{})
-		if !ok || len(providers) != 3 {
-			t.Fatalf("Expected 3 providers, got %d", len(providers))
+		// Each file must have singular "provider" not "providers"
+		if _, hasProvider := m["provider"]; !hasProvider {
+			t.Errorf("File %s missing singular 'provider' key", filename)
+		}
+		if _, hasProviders := m["providers"]; hasProviders {
+			t.Errorf("File %s should not contain 'providers' array", filename)
 		}
 
-		// Verify Cloudflare config
-		cloudflare, ok := manifest["cloudflare"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("Cloudflare config not found in manifest")
-		}
-		if cloudflare["domain"] != "app.example.com" {
-			t.Errorf("Cloudflare domain mismatch")
-		}
-
-		// Verify credentials
-		credentials, ok := manifest["credentials"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("Credentials config not found in manifest")
-		}
-		if credentials["source"] != "secrets-manager" {
-			t.Errorf("Credentials source mismatch")
-		}
-
-		// Cleanup
 		os.Remove(filePath)
+	}
+
+	// Clean up cloudflare config file
+	if len(filenames) >= 4 {
+		cfFile := filenames[3].(string)
+		os.Remove(filepath.Join(manifestsDir, cfFile))
 	}
 }
 
@@ -429,20 +425,20 @@ func TestGenerateManifestHandler_InvalidJSON(t *testing.T) {
 func TestGenerateManifestHandler_MinimalConfig(t *testing.T) {
 	// Test with minimal required fields only
 	reqData := ManifestRequest{
-		Providers: []ProviderConfig{
+		Providers: []UIProviderConfig{
 			{
 				Name:   "aws",
 				Region: "us-east-1",
 			},
 		},
-		Application: ApplicationConfig{
+		Application: manifest.ApplicationConfig{
 			Name: "minimal-app",
 		},
-		Environment: EnvironmentConfig{
+		Environment: manifest.EnvironmentConfig{
 			Name: "minimal-env",
 		},
-		Deployment: DeploymentConfig{
-			Source: SourceConfig{
+		Deployment: manifest.DeploymentConfig{
+			Source: manifest.SourceConfig{
 				Type: "local",
 				Path: ".",
 			},
@@ -478,43 +474,54 @@ func TestGenerateManifestHandler_MinimalConfig(t *testing.T) {
 }
 
 func TestManifestYAMLFormat(t *testing.T) {
-	// Test that generated YAML is valid and well-formatted
+	// Test that generated YAML uses singular "provider" key
 	reqData := ManifestRequest{
 		Version: "1.0",
-		Providers: []ProviderConfig{
+		Providers: []UIProviderConfig{
 			{
 				Name:   "aws",
 				Region: "us-west-2",
 			},
 		},
-		Application: ApplicationConfig{
+		Application: manifest.ApplicationConfig{
 			Name: "format-test",
 		},
-		Environment: EnvironmentConfig{
+		Environment: manifest.EnvironmentConfig{
 			Name: "format-test-env",
 		},
-		Deployment: DeploymentConfig{
+		Deployment: manifest.DeploymentConfig{
 			Platform: "docker",
-			Source: SourceConfig{
+			Source: manifest.SourceConfig{
 				Type: "local",
 				Path: ".",
 			},
 		},
 	}
 
-	yamlData, err := yaml.Marshal(&reqData)
+	m := reqData.toManifest(0)
+
+	yamlData, err := yaml.Marshal(&m)
 	if err != nil {
 		t.Fatalf("Failed to marshal to YAML: %v", err)
 	}
 
+	// Verify the YAML contains "provider:" (singular), not "providers:"
+	yamlStr := string(yamlData)
+	if !strings.Contains(yamlStr, "provider:") {
+		t.Errorf("YAML should contain 'provider:' key")
+	}
+	if strings.Contains(yamlStr, "providers:") {
+		t.Errorf("YAML should not contain 'providers:' key")
+	}
+
 	// Unmarshal back to verify round-trip
-	var roundTrip ManifestRequest
+	var roundTrip manifest.Manifest
 	if err := yaml.Unmarshal(yamlData, &roundTrip); err != nil {
 		t.Fatalf("Failed to unmarshal YAML: %v", err)
 	}
 
 	// Verify data integrity
-	if len(roundTrip.Providers) == 0 || roundTrip.Providers[0].Name != reqData.Providers[0].Name {
+	if roundTrip.Provider.Name != reqData.Providers[0].Name {
 		t.Errorf("Provider name mismatch after round-trip")
 	}
 	if roundTrip.Application.Name != reqData.Application.Name {
@@ -535,5 +542,20 @@ func TestCleanup(t *testing.T) {
 			os.Remove(file)
 			t.Logf("Cleaned up test file: %s", file)
 		}
+		// Also clean up cloudflare config files
+		cfFiles, _ := filepath.Glob(filepath.Join(manifestsDir, "cloudflare-config-*.yaml"))
+		for _, file := range cfFiles {
+			os.Remove(file)
+			t.Logf("Cleaned up cloudflare config: %s", file)
+		}
 	}
+}
+
+// keys is a test helper that returns the keys of a map.
+func keys(m map[string]interface{}) []string {
+	result := make([]string, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
 }

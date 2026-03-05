@@ -28,9 +28,9 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		logging.Info("cloud-deploy version %s\n", version)
-		logging.Info("  commit: %s\n", commit)
-		logging.Info("  built: %s\n", date)
+		logging.Infof("cloud-deploy version %s", version)
+		logging.Infof("  commit: %s", commit)
+		logging.Infof("  built: %s", date)
 		os.Exit(0)
 	}
 
@@ -58,27 +58,27 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Deployment failed: %v\n", err)
 			os.Exit(1)
 		}
-		logging.Info("✓ Deployment successful!\n")
-		logging.Info("  Application: %s\n", result.ApplicationName)
-		logging.Info("  Environment: %s\n", result.EnvironmentName)
-		logging.Info("  URL: %s\n", result.URL)
-		logging.Info("  Status: %s\n", result.Status)
+		logging.Info("✓ Deployment successful!")
+		logging.Infof("  Application: %s", result.ApplicationName)
+		logging.Infof("  Environment: %s", result.EnvironmentName)
+		logging.Infof("  URL: %s", result.URL)
+		logging.Infof("  Status: %s", result.Status)
 
 	case "stop":
-		logging.Info("Stopping deployment...\n")
+		logging.Info("Stopping deployment...")
 		if err := p.Stop(ctx, m); err != nil {
 			fmt.Fprintf(os.Stderr, "Stop failed: %v\n", err)
 			os.Exit(1)
 		}
-		logging.Info("✓ Deployment stopped successfully\n")
+		logging.Info("✓ Deployment stopped successfully")
 
 	case "destroy":
-		logging.Info("Destroying deployment...\n")
+		logging.Info("Destroying deployment...")
 		if err := p.Destroy(ctx, m); err != nil {
 			fmt.Fprintf(os.Stderr, "Destroy failed: %v\n", err)
 			os.Exit(1)
 		}
-		logging.Info("✓ Deployment destroyed successfully\n")
+		logging.Info("✓ Deployment destroyed successfully")
 
 	case "status":
 		status, err := p.Status(ctx, m)
@@ -86,27 +86,27 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Failed to get status: %v\n", err)
 			os.Exit(1)
 		}
-		logging.Info("Deployment Status:\n")
-		logging.Info("  Application: %s\n", status.ApplicationName)
-		logging.Info("  Environment: %s\n", status.EnvironmentName)
-		logging.Info("  Status: %s\n", status.Status)
-		logging.Info("  Health: %s\n", status.Health)
-		logging.Info("  URL: %s\n", status.URL)
-		logging.Info("  Last Updated: %s\n", status.LastUpdated)
+		logging.Info("Deployment Status:")
+		logging.Infof("  Application: %s", status.ApplicationName)
+		logging.Infof("  Environment: %s", status.EnvironmentName)
+		logging.Infof("  Status: %s", status.Status)
+		logging.Infof("  Health: %s", status.Health)
+		logging.Infof("  URL: %s", status.URL)
+		logging.Infof("  Last Updated: %s", status.LastUpdated)
 
 	case "rollback":
-		logging.Info("Rolling back deployment...\n")
+		logging.Info("Rolling back deployment...")
 		result, err := p.Rollback(ctx, m)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Rollback failed: %v\n", err)
 			os.Exit(1)
 		}
-		logging.Info("✓ Rollback successful!\n")
-		logging.Info("  Application: %s\n", result.ApplicationName)
-		logging.Info("  Environment: %s\n", result.EnvironmentName)
-		logging.Info("  URL: %s\n", result.URL)
-		logging.Info("  Status: %s\n", result.Status)
-		logging.Info("  Message: %s\n", result.Message)
+		logging.Info("✓ Rollback successful!")
+		logging.Infof("  Application: %s", result.ApplicationName)
+		logging.Infof("  Environment: %s", result.EnvironmentName)
+		logging.Infof("  URL: %s", result.URL)
+		logging.Infof("  Status: %s", result.Status)
+		logging.Infof("  Message: %s", result.Message)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
