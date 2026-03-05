@@ -63,7 +63,7 @@ func TestAWSIntegration(t *testing.T) {
 	}
 
 	// Create provider
-	provider, err := New(ctx, region, nil)
+	provider, err := New(ctx, region, nil, m)
 	if err != nil {
 		t.Fatalf("Failed to create AWS provider: %v", err)
 	}
@@ -128,7 +128,24 @@ func TestAWSProviderCreation(t *testing.T) {
 		region = "us-east-1"
 	}
 
-	provider, err := New(ctx, region, nil)
+	m := &manifest.Manifest{
+		Provider: manifest.ProviderConfig{
+			Name:   "aws",
+			Region: region,
+		},
+		Application: manifest.ApplicationConfig{
+			Name: "provider-creation-test",
+		},
+		Environment: manifest.EnvironmentConfig{
+			Name: "creation-test-env",
+		},
+		Instance: manifest.InstanceConfig{
+			Type:            "t3.micro",
+			EnvironmentType: "SingleInstance",
+		},
+	}
+
+	provider, err := New(ctx, region, nil, m)
 	if err != nil {
 		t.Fatalf("Failed to create AWS provider: %v", err)
 	}

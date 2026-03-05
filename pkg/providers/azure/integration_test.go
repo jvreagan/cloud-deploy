@@ -85,7 +85,7 @@ func TestAzureIntegration(t *testing.T) {
 	}
 
 	// Create provider
-	provider, err := New(ctx, subscriptionID, location, resourceGroup, m.Provider.Credentials.Azure)
+	provider, err := New(ctx, subscriptionID, location, resourceGroup, m.Provider.Credentials.Azure, m.Provider.Credentials, m)
 	if err != nil {
 		t.Fatalf("Failed to create Azure provider: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestAzureProviderCreation(t *testing.T) {
 		TenantID:     os.Getenv("AZURE_TENANT_ID"),
 	}
 
-	provider, err := New(ctx, subscriptionID, location, resourceGroup, creds)
+	provider, err := New(ctx, subscriptionID, location, resourceGroup, creds, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create Azure provider: %v", err)
 	}

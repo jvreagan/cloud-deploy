@@ -75,7 +75,7 @@ func TestGCPIntegration(t *testing.T) {
 	}
 
 	// Create provider
-	provider, err := New(ctx, &m.Provider)
+	provider, err := New(ctx, &m.Provider, m)
 	if err != nil {
 		t.Fatalf("Failed to create GCP provider: %v", err)
 	}
@@ -151,7 +151,10 @@ func TestGCPProviderCreation(t *testing.T) {
 		},
 	}
 
-	provider, err := New(ctx, config)
+	m := &manifest.Manifest{
+		Provider: *config,
+	}
+	provider, err := New(ctx, config, m)
 	if err != nil {
 		t.Fatalf("Failed to create GCP provider: %v", err)
 	}
