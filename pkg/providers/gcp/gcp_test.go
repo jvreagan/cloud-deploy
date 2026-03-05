@@ -197,3 +197,92 @@ func TestLoadCredentialsWithEnvironmentSource(t *testing.T) {
 		t.Error("Expected nil option for environment source (uses Application Default Credentials)")
 	}
 }
+
+func TestLoadCredentialsSourcePrecedence(t *testing.T) {
+	// When source is "environment", path and JSON should be ignored
+	creds := &manifest.CredentialsConfig{
+		Source:                "environment",
+		ServiceAccountKeyPath: "/some/path.json",
+		ServiceAccountKeyJSON: `{"type":"service_account"}`,
+	}
+
+	option, err := loadCredentials(creds)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if option != nil {
+		t.Error("Expected nil option when source is environment, regardless of other fields")
+	}
+}
+
+func TestLoadCredentialsPathPrecedenceOverJSON(t *testing.T) {
+	// When both path and JSON are set (without environment source), path takes precedence
+	creds := &manifest.CredentialsConfig{
+		ServiceAccountKeyPath: "/path/to/key.json",
+		ServiceAccountKeyJSON: `{"type":"service_account","project_id":"test"}`,
+	}
+
+	option, err := loadCredentials(creds)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if option == nil {
+		t.Error("Expected non-nil option when path is specified")
+	}
+}
+
+func TestProviderFields(t *testing.T) {
+	tests := []struct {
+		name           string
+		projectID      string
+		region         string
+		publicAccess   bool
+		billingAccount string
+		organizationID string
+	}{
+		{
+			name:           "full config",
+			projectID:      "my-project",
+			region:         "us-central1",
+			publicAccess:   true,
+			billingAccount: "012345-6789AB-CDEF01",
+			organizationID: "123456789",
+		},
+		{
+			name:      "minimal config",
+			projectID: "minimal",
+			region:    "europe-west1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{
+				projectID:      tt.projectID,
+				region:         tt.region,
+				publicAccess:   tt.publicAccess,
+				billingAccount: tt.billingAccount,
+				organizationID: tt.organizationID,
+			}
+
+			if p.Name() != "gcp" {
+				t.Errorf("Expected Name() = 'gcp', got '%s'", p.Name())
+			}
+			if p.projectID != tt.projectID {
+				t.Errorf("Expected projectID '%s', got '%s'", tt.projectID, p.projectID)
+			}
+			if p.region != tt.region {
+				t.Errorf("Expected region '%s', got '%s'", tt.region, p.region)
+			}
+			if p.publicAccess != tt.publicAccess {
+				t.Errorf("Expected publicAccess %v, got %v", tt.publicAccess, p.publicAccess)
+			}
+			if p.billingAccount != tt.billingAccount {
+				t.Errorf("Expected billingAccount '%s', got '%s'", tt.billingAccount, p.billingAccount)
+			}
+			if p.organizationID != tt.organizationID {
+				t.Errorf("Expected organizationID '%s', got '%s'", tt.organizationID, p.organizationID)
+			}
+		})
+	}
+}

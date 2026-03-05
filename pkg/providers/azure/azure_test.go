@@ -130,6 +130,70 @@ func TestCreateTarGzSkipsHiddenFiles(t *testing.T) {
 	// For now, we just verify it was created successfully
 }
 
+func TestGenerateRegistryNameEdgeCases(t *testing.T) {
+	p := &Provider{}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "exactly 5 chars",
+			input:    "abcde",
+			expected: "abcde",
+		},
+		{
+			name:     "exactly 50 chars",
+			input:    "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmn",
+			expected: "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmn",
+		},
+		{
+			name:     "4 chars gets padded",
+			input:    "abcd",
+			expected: "abcdregistry",
+		},
+		{
+			name:     "all special characters",
+			input:    "!@#$%^&*()",
+			expected: "registry",
+		},
+		{
+			name:     "mixed case and numbers",
+			input:    "MyApp123",
+			expected: "myapp123",
+		},
+		{
+			name:     "single char gets padded",
+			input:    "a",
+			expected: "aregistry",
+		},
+		{
+			name:     "unicode characters stripped",
+			input:    "héllo",
+			expected: "hlloregistry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := p.generateRegistryName(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
+			}
+			// Verify constraints
+			if len(result) < 5 || len(result) > 50 {
+				t.Errorf("Registry name length %d is not between 5 and 50", len(result))
+			}
+			for _, c := range result {
+				if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+					t.Errorf("Registry name contains invalid character: %c", c)
+				}
+			}
+		})
+	}
+}
+
 func TestFindPreviousImageFromTags(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -197,6 +261,73 @@ func TestFindPreviousImageFromTags(t *testing.T) {
 			// Verify the result preserves the image base
 			if !strings.HasPrefix(result, "myregistry.azurecr.io/myregistry:") {
 				t.Errorf("expected image base preserved, got %q", result)
+			}
+		})
+	}
+}
+
+func TestFindPreviousImageFromTagsEdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		currentImage string
+		tags         []string
+		wantTag      string
+		wantErr      string
+	}{
+		{
+			name:         "empty tags list",
+			currentImage: "reg.azurecr.io/repo:deploy-20260301T140000",
+			tags:         []string{},
+			wantErr:      "no previous deployment found",
+		},
+		{
+			name:         "nil tags list",
+			currentImage: "reg.azurecr.io/repo:deploy-20260301T140000",
+			tags:         nil,
+			wantErr:      "no previous deployment found",
+		},
+		{
+			name:         "only current tag present",
+			currentImage: "reg.azurecr.io/repo:deploy-20260301T140000",
+			tags:         []string{"deploy-20260301T140000"},
+			wantErr:      "no previous deployment found",
+		},
+		{
+			name:         "image with multiple colons",
+			currentImage: "host:port/repo:tag:extra",
+			wantErr:      "invalid image format",
+		},
+		{
+			name:         "many deploy tags returns most recent",
+			currentImage: "reg.azurecr.io/repo:deploy-20260305T000000",
+			tags: []string{
+				"deploy-20260301T000000",
+				"deploy-20260302T000000",
+				"deploy-20260303T000000",
+				"deploy-20260304T000000",
+				"deploy-20260305T000000",
+			},
+			wantTag: "deploy-20260304T000000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := findPreviousImageFromTags(tt.tags, tt.currentImage)
+
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !strings.HasSuffix(result, tt.wantTag) {
+				t.Errorf("expected image ending with %q, got %q", tt.wantTag, result)
 			}
 		})
 	}

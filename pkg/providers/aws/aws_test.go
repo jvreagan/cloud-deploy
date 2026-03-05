@@ -728,6 +728,192 @@ func TestZipDirectoryWithSpecialCharactersInFilenames(t *testing.T) {
 	}
 }
 
+func TestBuildOptionSettingsWithPorts(t *testing.T) {
+	provider := &Provider{
+		region: "us-east-1",
+	}
+
+	tests := []struct {
+		name              string
+		manifest          *manifest.Manifest
+		expectedProtocol  string
+		expectedPort      string
+		listenerNamespace string
+	}{
+		{
+			name: "HTTP port 80",
+			manifest: &manifest.Manifest{
+				Instance: manifest.InstanceConfig{
+					Type:            "t3.micro",
+					EnvironmentType: "LoadBalanced",
+				},
+				Ports: []manifest.PortMapping{
+					{ContainerPort: 80},
+				},
+				HealthCheck: manifest.HealthCheckConfig{},
+				Monitoring:  manifest.MonitoringConfig{},
+				IAM:         manifest.IAMConfig{},
+			},
+			expectedProtocol:  "HTTP",
+			expectedPort:      "80",
+			listenerNamespace: "aws:elb:listener:80",
+		},
+		{
+			name: "HTTPS port 443 without ACM (TCP passthrough)",
+			manifest: &manifest.Manifest{
+				Instance: manifest.InstanceConfig{
+					Type:            "t3.micro",
+					EnvironmentType: "LoadBalanced",
+				},
+				Ports: []manifest.PortMapping{
+					{ContainerPort: 443},
+				},
+				HealthCheck: manifest.HealthCheckConfig{},
+				Monitoring:  manifest.MonitoringConfig{},
+				IAM:         manifest.IAMConfig{},
+			},
+			expectedProtocol:  "TCP",
+			expectedPort:      "443",
+			listenerNamespace: "aws:elb:listener:443",
+		},
+		{
+			name: "custom port with host mapping",
+			manifest: &manifest.Manifest{
+				Instance: manifest.InstanceConfig{
+					Type:            "t3.micro",
+					EnvironmentType: "LoadBalanced",
+				},
+				Ports: []manifest.PortMapping{
+					{ContainerPort: 8080, HostPort: 80},
+				},
+				HealthCheck: manifest.HealthCheckConfig{},
+				Monitoring:  manifest.MonitoringConfig{},
+				IAM:         manifest.IAMConfig{},
+			},
+			expectedProtocol:  "HTTP",
+			expectedPort:      "80",
+			listenerNamespace: "aws:elb:listener:8080",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := provider.buildOptionSettings(tt.manifest)
+
+			foundProtocol := false
+			foundPort := false
+
+			for _, setting := range settings {
+				namespace := *setting.Namespace
+				optionName := *setting.OptionName
+				value := *setting.Value
+
+				if namespace == tt.listenerNamespace && optionName == "ListenerProtocol" {
+					if value != tt.expectedProtocol {
+						t.Errorf("Expected ListenerProtocol '%s', got '%s'", tt.expectedProtocol, value)
+					}
+					foundProtocol = true
+				}
+
+				if namespace == tt.listenerNamespace && optionName == "InstancePort" {
+					if value != tt.expectedPort {
+						t.Errorf("Expected InstancePort '%s', got '%s'", tt.expectedPort, value)
+					}
+					foundPort = true
+				}
+			}
+
+			if !foundProtocol {
+				t.Errorf("ListenerProtocol not found in namespace %s", tt.listenerNamespace)
+			}
+			if !foundPort {
+				t.Errorf("InstancePort not found in namespace %s", tt.listenerNamespace)
+			}
+		})
+	}
+}
+
+func TestBuildOptionSettingsMultiContainerPorts(t *testing.T) {
+	provider := &Provider{
+		region: "us-east-1",
+	}
+
+	m := &manifest.Manifest{
+		Instance: manifest.InstanceConfig{
+			Type:            "t3.micro",
+			EnvironmentType: "LoadBalanced",
+		},
+		Containers: []manifest.Container{
+			{
+				Name:  "app",
+				Image: "myapp:latest",
+				Ports: []manifest.PortMapping{
+					{ContainerPort: 80},
+					{ContainerPort: 443},
+				},
+			},
+			{
+				Name:  "sidecar",
+				Image: "sidecar:latest",
+				Ports: []manifest.PortMapping{
+					{ContainerPort: 8125},
+				},
+			},
+		},
+		HealthCheck: manifest.HealthCheckConfig{},
+		Monitoring:  manifest.MonitoringConfig{},
+		IAM:         manifest.IAMConfig{},
+	}
+
+	settings := provider.buildOptionSettings(m)
+
+	// Should have listeners for ports 80, 443, and 8125
+	listenerNamespaces := map[string]bool{}
+	for _, setting := range settings {
+		ns := *setting.Namespace
+		if strings.HasPrefix(ns, "aws:elb:listener:") {
+			listenerNamespaces[ns] = true
+		}
+	}
+
+	expected := []string{
+		"aws:elb:listener:80",
+		"aws:elb:listener:443",
+		"aws:elb:listener:8125",
+	}
+	for _, ns := range expected {
+		if !listenerNamespaces[ns] {
+			t.Errorf("Expected listener namespace %s not found", ns)
+		}
+	}
+}
+
+func TestBuildOptionSettingsNoPorts(t *testing.T) {
+	provider := &Provider{
+		region: "us-east-1",
+	}
+
+	m := &manifest.Manifest{
+		Instance: manifest.InstanceConfig{
+			Type:            "t3.micro",
+			EnvironmentType: "SingleInstance",
+		},
+		HealthCheck: manifest.HealthCheckConfig{},
+		Monitoring:  manifest.MonitoringConfig{},
+		IAM:         manifest.IAMConfig{},
+	}
+
+	settings := provider.buildOptionSettings(m)
+
+	// Should have no listener settings when no ports specified
+	for _, setting := range settings {
+		ns := *setting.Namespace
+		if strings.HasPrefix(ns, "aws:elb:listener:") {
+			t.Errorf("Unexpected listener setting when no ports specified: %s", ns)
+		}
+	}
+}
+
 func TestProviderRegion(t *testing.T) {
 	tests := []struct {
 		name   string

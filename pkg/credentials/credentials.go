@@ -13,7 +13,7 @@ import (
 
 // Manager handles credential retrieval from various sources
 type Manager struct {
-	Source  string            // "environment", "secrets-manager", "encrypted-file"
+	Source  string            // "environment", "secrets-manager"
 	Secrets map[string]string // Maps credential keys to their source identifiers
 }
 
@@ -49,8 +49,6 @@ func (m *Manager) GetCredentials(ctx context.Context, provider string) (*Provide
 		return m.getFromEnvironment(provider)
 	case "secrets-manager":
 		return m.getFromSecretsManager(ctx, provider)
-	case "encrypted-file":
-		return nil, fmt.Errorf("encrypted file integration not yet implemented")
 	default:
 		return nil, fmt.Errorf("unknown credentials source: %s", m.Source)
 	}

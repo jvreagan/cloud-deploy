@@ -450,20 +450,6 @@ func (m *Manifest) IsMultiContainer() bool {
 	return len(m.Containers) > 0
 }
 
-// GetImages returns a list of all Docker images that need to be deployed.
-// For single-container: returns []string{m.Image}
-// For multi-container: returns all container images
-func (m *Manifest) GetImages() []string {
-	if m.IsMultiContainer() {
-		images := make([]string, len(m.Containers))
-		for i, container := range m.Containers {
-			images[i] = container.Image
-		}
-		return images
-	}
-	return []string{m.Image}
-}
-
 // GetPrimaryContainer returns the primary/first container.
 // For single-container: returns a Container created from the Image field
 // For multi-container: returns the first container in the Containers array
