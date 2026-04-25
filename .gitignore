@@ -75,3 +75,4 @@ terraform.tfstate.*
 
 # Vault tokens
 .vault-token
+autobacklog.yaml
