@@ -25,7 +25,7 @@ require (
 	github.com/google/go-containerregistry v0.20.6
 	golang.org/x/oauth2 v0.32.0
 	google.golang.org/api v0.255.0
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
