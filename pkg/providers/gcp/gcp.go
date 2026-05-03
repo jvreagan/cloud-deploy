@@ -154,6 +154,7 @@ func New(ctx context.Context, config *manifest.ProviderConfig, m *manifest.Manif
 	if err != nil {
 		buildClient.Close()
 		runClient.Close()
+		revisionsClient.Close()
 		storageClient.Close()
 		return nil, fmt.Errorf("failed to create Logging client: %w", err)
 	}
