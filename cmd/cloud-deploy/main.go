@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +40,7 @@ func main() {
 	// Load and parse manifest
 	m, err := manifest.Load(*manifestFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading manifest: %v\n", err)
+		logging.Errorf("Error loading manifest: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -56,7 +55,7 @@ func main() {
 	// Create provider
 	p, err := provider.Factory(ctx, m)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating provider: %v\n", err)
+		logging.Errorf("Error creating provider: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -65,7 +64,7 @@ func main() {
 	case "deploy":
 		result, err := p.Deploy(ctx, m)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Deployment failed: %v\n", err)
+			logging.Errorf("Deployment failed: %v\n", err)
 			os.Exit(1)
 		}
 		logging.Info("✓ Deployment successful!")
@@ -77,7 +76,7 @@ func main() {
 	case "stop":
 		logging.Info("Stopping deployment...")
 		if err := p.Stop(ctx, m); err != nil {
-			fmt.Fprintf(os.Stderr, "Stop failed: %v\n", err)
+			logging.Errorf("Stop failed: %v\n", err)
 			os.Exit(1)
 		}
 		logging.Info("✓ Deployment stopped successfully")
@@ -85,7 +84,7 @@ func main() {
 	case "destroy":
 		logging.Info("Destroying deployment...")
 		if err := p.Destroy(ctx, m); err != nil {
-			fmt.Fprintf(os.Stderr, "Destroy failed: %v\n", err)
+			logging.Errorf("Destroy failed: %v\n", err)
 			os.Exit(1)
 		}
 		logging.Info("✓ Deployment destroyed successfully")
@@ -93,7 +92,7 @@ func main() {
 	case "status":
 		status, err := p.Status(ctx, m)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to get status: %v\n", err)
+			logging.Errorf("Failed to get status: %v\n", err)
 			os.Exit(1)
 		}
 		logging.Info("Deployment Status:")
@@ -108,7 +107,7 @@ func main() {
 		logging.Info("Rolling back deployment...")
 		result, err := p.Rollback(ctx, m)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Rollback failed: %v\n", err)
+			logging.Errorf("Rollback failed: %v\n", err)
 			os.Exit(1)
 		}
 		logging.Info("✓ Rollback successful!")
@@ -119,8 +118,8 @@ func main() {
 		logging.Infof("  Message: %s", result.Message)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
-		fmt.Fprintf(os.Stderr, "Valid commands: deploy, stop, destroy, status, rollback\n")
+		logging.Errorf("Unknown command: %s\n", *command)
+		logging.Error("Valid commands: deploy, stop, destroy, status, rollback")
 		os.Exit(1)
 	}
 }
