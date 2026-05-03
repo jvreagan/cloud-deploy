@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/jvreagan/cloud-deploy/pkg/logging"
 	"github.com/jvreagan/cloud-deploy/pkg/manifest"
@@ -23,6 +26,7 @@ func main() {
 	var (
 		manifestFile = flag.String("manifest", "deploy-manifest.yaml", "Path to deployment manifest file")
 		command      = flag.String("command", "deploy", "Command to execute: deploy, stop, destroy, status, rollback")
+		timeout      = flag.Duration("timeout", 30*time.Minute, "Maximum time for the operation to complete")
 		showVersion  = flag.Bool("version", false, "Show version information")
 	)
 	flag.Parse()
@@ -41,7 +45,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	// Set up context with timeout and signal handling
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	sigCtx, sigCancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer sigCancel()
+	ctx = sigCtx
 
 	// Create provider
 	p, err := provider.Factory(ctx, m)
