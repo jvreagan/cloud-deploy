@@ -582,8 +582,8 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 				Path: to.Ptr(m.HealthCheck.Path),
 				Port: to.Ptr[int32](80),
 			},
-			PeriodSeconds:      to.Ptr[int32](10),
-			FailureThreshold:   to.Ptr[int32](3),
+			PeriodSeconds:       to.Ptr[int32](10),
+			FailureThreshold:    to.Ptr[int32](3),
 			InitialDelaySeconds: to.Ptr[int32](5),
 		}
 		logging.Infof("Configured liveness probe with path: %s", m.HealthCheck.Path)
