@@ -478,6 +478,21 @@ func (p *Provider) deployService(ctx context.Context, m *manifest.Manifest, serv
 		container.Resources = resources
 	}
 
+	// Apply health check configuration as startup probe
+	if m.HealthCheck.Path != "" {
+		container.StartupProbe = &runpb.Probe{
+			ProbeType: &runpb.Probe_HttpGet{
+				HttpGet: &runpb.HTTPGetAction{
+					Path: m.HealthCheck.Path,
+				},
+			},
+			PeriodSeconds:    10,
+			FailureThreshold: 3,
+			TimeoutSeconds:   1,
+		}
+		logging.Infof("Configured startup probe with path: %s", m.HealthCheck.Path)
+	}
+
 	// Create revision template with deployment timestamp annotation to force new revision
 	revisionTemplate := &runpb.RevisionTemplate{
 		Containers: []*runpb.Container{container},
