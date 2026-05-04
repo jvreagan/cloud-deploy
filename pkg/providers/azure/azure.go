@@ -554,32 +554,48 @@ func (p *Provider) deployContainerGroup(ctx context.Context, m *manifest.Manifes
 		return '-'
 	}, dnsLabel)
 
+	containerProps := &armcontainerinstance.ContainerProperties{
+		Image: to.Ptr(image),
+		Resources: &armcontainerinstance.ResourceRequirements{
+			Requests: &armcontainerinstance.ResourceRequests{
+				CPU:        to.Ptr(cpu),
+				MemoryInGB: to.Ptr(memoryGB),
+			},
+		},
+		Ports: []*armcontainerinstance.ContainerPort{
+			{
+				Port:     to.Ptr[int32](80),
+				Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
+			},
+			{
+				Port:     to.Ptr[int32](443),
+				Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
+			},
+		},
+		EnvironmentVariables: envVars,
+	}
+
+	// Apply health check configuration as liveness probe
+	if m.HealthCheck.Path != "" {
+		containerProps.LivenessProbe = &armcontainerinstance.ContainerProbe{
+			HTTPGet: &armcontainerinstance.ContainerHTTPGet{
+				Path: to.Ptr(m.HealthCheck.Path),
+				Port: to.Ptr[int32](80),
+			},
+			PeriodSeconds:       to.Ptr[int32](10),
+			FailureThreshold:    to.Ptr[int32](3),
+			InitialDelaySeconds: to.Ptr[int32](5),
+		}
+		logging.Infof("Configured liveness probe with path: %s", m.HealthCheck.Path)
+	}
+
 	containerGroup := armcontainerinstance.ContainerGroup{
 		Location: to.Ptr(p.location),
 		Properties: &armcontainerinstance.ContainerGroupProperties{
 			Containers: []*armcontainerinstance.Container{
 				{
-					Name: to.Ptr(m.Application.Name),
-					Properties: &armcontainerinstance.ContainerProperties{
-						Image: to.Ptr(image),
-						Resources: &armcontainerinstance.ResourceRequirements{
-							Requests: &armcontainerinstance.ResourceRequests{
-								CPU:        to.Ptr(cpu),
-								MemoryInGB: to.Ptr(memoryGB),
-							},
-						},
-						Ports: []*armcontainerinstance.ContainerPort{
-							{
-								Port:     to.Ptr[int32](80),
-								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
-							},
-							{
-								Port:     to.Ptr[int32](443),
-								Protocol: to.Ptr(armcontainerinstance.ContainerNetworkProtocolTCP),
-							},
-						},
-						EnvironmentVariables: envVars,
-					},
+					Name:       to.Ptr(m.Application.Name),
+					Properties: containerProps,
 				},
 			},
 			OSType: to.Ptr(armcontainerinstance.OperatingSystemTypesLinux),
